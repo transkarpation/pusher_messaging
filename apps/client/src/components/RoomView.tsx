@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import type { Room, User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
 import { deliveryOf } from "../lib/delivery";
@@ -20,7 +28,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const [text, setText] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Focus the composer when a room opens (the component remounts per room).
   // Skipped on touch devices, where it would pop up the on-screen keyboard.
@@ -39,9 +47,26 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, pending.length, loaded]);
 
-  const onTextChange = (e: ChangeEvent<HTMLInputElement>) => {
+  // Grow the composer with its content; CSS max-height caps it at 5 lines, after which it scrolls.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [text]);
+
+  const onTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
     typing.onInput(e.target.value);
+  };
+
+  // Enter sends, Shift+Enter inserts a newline. On touch devices Enter always inserts
+  // a newline and the Send button submits. Ignored while an IME is composing.
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
   };
 
   const onSubmit = (e: FormEvent) => {
@@ -105,11 +130,13 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
 
         <TypingIndicator roomId={room.id} members={room.members} />
         <form onSubmit={onSubmit} className="composer">
-          <input
+          <textarea
             ref={inputRef}
+            rows={1}
             placeholder={`Message ${room.name}`}
             value={text}
             onChange={onTextChange}
+            onKeyDown={onKeyDown}
             onBlur={typing.stop}
           />
           <button type="submit">Send</button>

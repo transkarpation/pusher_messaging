@@ -81,7 +81,8 @@ h3 { font-size: 14px; font-weight: 600; }
 .center-text { text-align: center; align-items: center; }
 label, .label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 
-input:not([type="checkbox"]) {
+input:not([type="checkbox"]),
+textarea {
   font: inherit;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -263,6 +264,7 @@ button.link.danger { color: var(--error); }
   padding: 6px 10px;
   border-radius: 12px 12px 12px 4px;
   background: var(--bubble);
+  white-space: pre-wrap;
 }
 .messages li.own {
   align-self: flex-end;
@@ -275,8 +277,15 @@ button.link.danger { color: var(--error); }
 .messages-placeholder { flex: 1; }
 
 .typing { font-size: 13px; min-height: 1.3em; margin-top: -6px; font-style: italic; }
-.composer { display: flex; gap: 8px; }
-.composer input { flex: 1; }
+.composer { display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea {
+  flex: 1;
+  resize: none;
+  line-height: 20px;
+  /* 5 lines + vertical padding (2 × 8px) + border (2 × 1px) */
+  max-height: calc(5 * 20px + 18px);
+  overflow-y: auto;
+}
 
 .status { margin-left: 6px; font-size: 12px; color: var(--muted); letter-spacing: -2px; }
 .status.read { color: var(--accent); }
