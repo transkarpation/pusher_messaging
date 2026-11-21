@@ -13,12 +13,14 @@
   --error: #d70015;
   --online: #30b94d;
   --offline: #c7c7cc;
+  color-scheme: light;
   font-family: system-ui, sans-serif;
   color: var(--text);
   background: var(--bg);
 }
+/* Dark palette: follows the OS unless the user picked a theme (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #111113;
     --card: #1c1c1f;
     --surface: #18181b;
@@ -30,7 +32,22 @@
     --hover: rgb(255 255 255 / 0.06);
     --error: #ff6961;
     --offline: #48484a;
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #111113;
+  --card: #1c1c1f;
+  --surface: #18181b;
+  --text: #f5f5f7;
+  --muted: #98989d;
+  --border: #3a3a3c;
+  --own: #1a2a4a;
+  --bubble: #2a2a2e;
+  --hover: rgb(255 255 255 / 0.06);
+  --error: #ff6961;
+  --offline: #48484a;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -93,6 +110,9 @@ button.secondary {
 button.ghost { background: transparent; color: var(--muted); }
 button.ghost:hover, button.secondary:hover { background: var(--hover); }
 button.icon { padding: 4px 8px; line-height: 1; }
+button.theme-toggle { font-size: 16px; }
+.theme-corner { position: fixed; top: 12px; right: 12px; }
+.sidebar-header-actions { display: flex; align-items: center; gap: 8px; }
 button.link { background: none; color: var(--accent); padding: 0; }
 button.link.danger { color: var(--error); }
 

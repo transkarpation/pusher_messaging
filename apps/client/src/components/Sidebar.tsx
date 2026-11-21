@@ -4,6 +4,7 @@ import { displayName } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
 import { CreateRoomModal } from "./CreateRoomModal";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function Sidebar({ me }: { me: User }) {
   const logout = useAuth((s) => s.logout);
@@ -22,9 +23,12 @@ export function Sidebar({ me }: { me: User }) {
           <strong>{displayName(me)}</strong>
           <div className="muted small">@{me.username}</div>
         </div>
-        <button type="button" className="link" onClick={() => void logout()}>
-          Log out
-        </button>
+        <div className="sidebar-header-actions">
+          <ThemeToggle />
+          <button type="button" className="link" onClick={() => void logout()}>
+            Log out
+          </button>
+        </div>
       </header>
 
       <div className="sidebar-actions">

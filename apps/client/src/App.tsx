@@ -3,6 +3,7 @@ import { useAuth } from "./store/auth";
 import { AuthForm } from "./components/AuthForm";
 import { ChatApp } from "./components/ChatApp";
 import { NameModal } from "./components/NameModal";
+import { ThemeToggle } from "./components/ThemeToggle";
 
 export function App() {
   const { user, status, init } = useAuth();
@@ -16,6 +17,7 @@ export function App() {
   if (!user) {
     return (
       <main className="center">
+        <ThemeToggle className="theme-corner" />
         <AuthForm />
       </main>
     );
