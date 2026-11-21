@@ -306,6 +306,25 @@ button.ghost.danger:hover { color: var(--error); }
 .messages li.pending { opacity: 0.75; }
 .messages li.editing { outline: 2px solid var(--accent); outline-offset: -2px; }
 .edited { margin-right: 6px; font-style: italic; }
+/* "Today" / "Yesterday" / date between days: a centered label over a hairline. */
+.messages li.day-separator {
+  align-self: stretch;
+  max-width: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 4px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.messages li.day-separator::before,
+.messages li.day-separator::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.messages li.day-separator span { white-space: nowrap; }
+
 /* System lines ("Bob joined the room"): centered, no bubble. */
 .messages li.system {
   align-self: center;
@@ -317,6 +336,8 @@ button.ghost.danger:hover { color: var(--error); }
   font-size: 12px;
   text-align: center;
 }
+.system-time { margin-left: 6px; opacity: 0.8; }
+.system-time::before { content: "· "; }
 .messages li.deleted { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
 .deleted-text { font-style: italic; }
 .deleted-text::before { content: "⊘ "; font-style: normal; }

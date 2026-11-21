@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -9,6 +10,7 @@ import {
 } from "react";
 import type { Message, Room, User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
+import { dayKey, dayLabel } from "../lib/dates";
 import { deliveryOf } from "../lib/delivery";
 import { deletedLabel, displayName, systemText } from "../lib/users";
 import { EMPTY_ROOM, useMessages } from "../store/messages";
@@ -151,6 +153,86 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateTime = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
+  /** A "Today" / "Yesterday" / date line before the first message of each day. */
+  const daySeparator = (iso: string, prevIso: string | undefined) =>
+    prevIso && dayKey(prevIso) === dayKey(iso) ? null : (
+      <li className="day-separator" role="separator">
+        <span>{dayLabel(iso)}</span>
+      </li>
+    );
+
+  const renderMessage = (m: Message) => {
+    const own = m.author.id === me.id;
+    const editable = canEdit(m);
+    const deletable = canDelete(m);
+    const system = systemText(m, me.id);
+    if (system !== null) {
+      return (
+        <li className="system" title={dateTime(m.createdAt)}>
+          {system}
+          <span className="system-time">{time(m.createdAt)}</span>
+        </li>
+      );
+    }
+    if (m.deletedAt) {
+      return (
+        <li className={own ? "own deleted" : "deleted"}>
+          {!own && <span className="message-author">{displayName(m.author)}</span>}
+          <span className="deleted-text">{deletedLabel(own)}</span>
+          <span className="message-meta">{time(m.createdAt)}</span>
+        </li>
+      );
+    }
+    const classes = [
+      own && "own",
+      m.id === selectedId && "selected",
+      m.id === editing?.message.id && "editing",
+    ].filter(Boolean);
+    return (
+      <li
+        className={classes.join(" ") || undefined}
+        onClick={() => {
+          if ((editable || deletable) && isTouch()) setSelectedId((id) => (id === m.id ? null : m.id));
+        }}
+      >
+        {!own && <span className="message-author">{displayName(m.author)}</span>}
+        {m.text}
+        <span className="message-meta">
+          {m.editedAt && (
+            <span className="edited" title={`Edited ${dateTime(m.editedAt)}`}>
+              edited
+            </span>
+          )}
+          {time(m.createdAt)}
+          {own && <MessageStatus info={deliveryOf(m, receipts)} />}
+        </span>
+        {(editable || deletable) && (
+          <span className="message-actions" onClick={(e) => e.stopPropagation()}>
+            {editable && (
+              <button type="button" className="ghost icon" title="Edit" aria-label="Edit message" onClick={() => startEditing(m)}>
+                ✎
+              </button>
+            )}
+            {deletable && (
+              <button
+                type="button"
+                className="ghost icon danger"
+                title="Delete"
+                aria-label="Delete message"
+                onClick={() => {
+                  setSelectedId(null);
+                  setDeleting(m);
+                }}
+              >
+                🗑
+              </button>
+            )}
+          </span>
+        )}
+      </li>
+    );
+  };
+
   return (
     <section className={`room ${showMembers ? "show-members" : ""}`}>
       <div className="room-main">
@@ -171,88 +253,26 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
           <p className="muted messages-placeholder">No messages yet. Say hi!</p>
         ) : (
           <ul className="messages" ref={listRef}>
-            {messages.map((m) => {
-              const own = m.author.id === me.id;
-              const editable = canEdit(m);
-              const deletable = canDelete(m);
-              const system = systemText(m, me.id);
-              if (system !== null) {
-                return (
-                  <li key={m.id} className="system" title={dateTime(m.createdAt)}>
-                    {system}
-                  </li>
-                );
-              }
-              if (m.deletedAt) {
-                return (
-                  <li key={m.id} className={own ? "own deleted" : "deleted"}>
-                    {!own && <span className="message-author">{displayName(m.author)}</span>}
-                    <span className="deleted-text">{deletedLabel(own)}</span>
-                    <span className="message-meta">{time(m.createdAt)}</span>
-                  </li>
-                );
-              }
-              const classes = [
-                own && "own",
-                m.id === selectedId && "selected",
-                m.id === editing?.message.id && "editing",
-              ].filter(Boolean);
-              return (
-                <li
-                  key={m.id}
-                  className={classes.join(" ") || undefined}
-                  onClick={() => {
-                    if ((editable || deletable) && isTouch()) setSelectedId((id) => (id === m.id ? null : m.id));
-                  }}
-                >
-                  {!own && <span className="message-author">{displayName(m.author)}</span>}
-                  {m.text}
+            {messages.map((m, i) => (
+              <Fragment key={m.id}>
+                {daySeparator(m.createdAt, messages[i - 1]?.createdAt)}
+                {renderMessage(m)}
+              </Fragment>
+            ))}
+            {pending.map((p, i) => (
+              <Fragment key={p.tempId}>
+                {daySeparator(p.createdAt, (i === 0 ? messages.at(-1) : pending[i - 1])?.createdAt)}
+                <li className="own pending">
+                  {p.text}
                   <span className="message-meta">
-                    {m.editedAt && (
-                      <span className="edited" title={`Edited ${dateTime(m.editedAt)}`}>
-                        edited
-                      </span>
-                    )}
-                    {time(m.createdAt)}
-                    {own && <MessageStatus info={deliveryOf(m, receipts)} />}
+                    {time(p.createdAt)}
+                    <MessageStatus
+                      info={{ status: p.status, deliveredCount: 0, readCount: 0 }}
+                      onRetry={() => void retry(room.id, p.tempId)}
+                    />
                   </span>
-                  {(editable || deletable) && (
-                    <span className="message-actions" onClick={(e) => e.stopPropagation()}>
-                      {editable && (
-                        <button type="button" className="ghost icon" title="Edit" aria-label="Edit message" onClick={() => startEditing(m)}>
-                          ✎
-                        </button>
-                      )}
-                      {deletable && (
-                        <button
-                          type="button"
-                          className="ghost icon danger"
-                          title="Delete"
-                          aria-label="Delete message"
-                          onClick={() => {
-                            setSelectedId(null);
-                            setDeleting(m);
-                          }}
-                        >
-                          🗑
-                        </button>
-                      )}
-                    </span>
-                  )}
                 </li>
-              );
-            })}
-            {pending.map((p) => (
-              <li key={p.tempId} className="own pending">
-                {p.text}
-                <span className="message-meta">
-                  {time(p.createdAt)}
-                  <MessageStatus
-                    info={{ status: p.status, deliveredCount: 0, readCount: 0 }}
-                    onRetry={() => void retry(room.id, p.tempId)}
-                  />
-                </span>
-              </li>
+              </Fragment>
             ))}
           </ul>
         )}
