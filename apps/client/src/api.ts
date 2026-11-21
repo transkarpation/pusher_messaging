@@ -1,0 +1,78 @@
+import {
+  SOCKET_ID_HEADER,
+  type AddMembersInput,
+  type CreateMessageInput,
+  type CreateRoomInput,
+  type Credentials,
+  type Message,
+  type MessagesResponse,
+  type RealtimeConfig,
+  type Receipt,
+  type Room,
+  type RoomMember,
+  type TypingInput,
+  type UpdateProfileInput,
+  type UpdateReceiptInput,
+  type User,
+} from "@pm/shared";
+import { getSocketId } from "./lib/socket";
+
+export class ApiRequestError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const socketId = getSocketId();
+  if (socketId) headers[SOCKET_ID_HEADER] = socketId;
+
+  const res = await fetch(`/api${path}`, {
+    method,
+    headers,
+    credentials: "same-origin",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new ApiRequestError(res.status, data?.error ?? res.statusText);
+  }
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+const room = (id: number) => `/rooms/${id}`;
+
+export const api = {
+  me: () => request<{ user: User | null }>("/auth/me"),
+  login: (c: Credentials) => request<{ user: User }>("/auth/login", "POST", c),
+  register: (c: Credentials) => request<{ user: User }>("/auth/register", "POST", c),
+  logout: () => request<void>("/auth/logout", "POST"),
+  updateProfile: (p: UpdateProfileInput) => request<{ user: User }>("/auth/me", "PATCH", p),
+
+  searchUsers: (q: string) => request<User[]>(`/users?q=${encodeURIComponent(q)}`),
+
+  getRooms: () => request<Room[]>("/rooms"),
+  createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
+  addMembers: (roomId: number, input: AddMembersInput) =>
+    request<{ members: RoomMember[] }>(`${room(roomId)}/members`, "POST", input),
+  removeMember: (roomId: number, userId: number) =>
+    request<{ members: RoomMember[] }>(`${room(roomId)}/members/${userId}`, "DELETE"),
+
+  /** Latest page, or with `after` the oldest page of messages newer than that id. */
+  getMessages: (roomId: number, after?: number) =>
+    request<MessagesResponse>(
+      `${room(roomId)}/messages${after === undefined ? "" : `?after=${after}`}`,
+    ),
+  createMessage: (roomId: number, input: CreateMessageInput) =>
+    request<Message>(`${room(roomId)}/messages`, "POST", input),
+  updateReceipt: (roomId: number, input: UpdateReceiptInput) =>
+    request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
+  sendTyping: (roomId: number, input: TypingInput) =>
+    request<void>(`${room(roomId)}/typing`, "POST", input),
+
+  getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
+};

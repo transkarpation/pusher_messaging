@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795287243064,
+      "tag": "0000_sticky_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795289361357,
+      "tag": "0001_wandering_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795289926901,
+      "tag": "0002_mighty_spectrum",
+      "breakpoints": true
+    }
+  ]
+}
