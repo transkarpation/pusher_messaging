@@ -5,18 +5,24 @@ import {
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
+  INVITATION_ADDED_EVENT,
+  INVITATION_REMOVED_EVENT,
   ONLINE_CHANNEL,
   RECEIPT_UPDATED_EVENT,
   ROOM_ADDED_EVENT,
+  ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
   USER_TYPING_EVENT,
   USER_UPDATED_EVENT,
   roomChannel,
   userChannel,
+  type Invitation,
+  type InvitationRemovedEvent,
   type Message,
   type Receipt,
   type Room,
+  type RoomInvitesEvent,
   type RoomMembersEvent,
   type RoomRemovedEvent,
   type TypingEvent,
@@ -24,6 +30,7 @@ import {
 } from "@pm/shared";
 import { isWindowActive } from "../lib/activity";
 import { getPusher } from "../realtime";
+import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
 import { useOnline, type PresenceMember } from "../store/online";
 import { useRooms } from "../store/rooms";
@@ -68,6 +75,7 @@ export function useRealtime(me: User) {
     const messages = useMessages.getState();
     const online = useOnline.getState();
     const typing = useTyping.getState();
+    const invitations = useInvitations.getState();
 
     const roomHandlers = (roomId: number): Handlers => ({
       [MESSAGE_CREATED_EVENT]: (m: Message) => {
@@ -87,6 +95,7 @@ export function useRealtime(me: User) {
         if (r.userId === me.id) rooms.applyMyReceipt(r); // from another tab of mine
       },
       [ROOM_MEMBERS_EVENT]: (e: RoomMembersEvent) => rooms.setMembers(e.roomId, e.members),
+      [ROOM_INVITES_EVENT]: (e: RoomInvitesEvent) => rooms.setInvites(e.roomId, e.invites),
     });
 
     /** Subscribes to rooms that appeared in the store, unsubscribes from those that left. */
@@ -122,6 +131,7 @@ export function useRealtime(me: User) {
             online.update(u);
             rooms.updateUser(u);
             messages.updateAuthor(u);
+            invitations.updateUser(u);
           },
         } satisfies Handlers);
 
@@ -129,9 +139,14 @@ export function useRealtime(me: User) {
         bindAll(mine, {
           [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
           [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
+          [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
+          [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
         } satisfies Handlers);
-        // Rooms added/removed, last messages, unread counts and members changed while offline.
-        onResubscribed(mine, () => void rooms.fetch());
+        // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
+        onResubscribed(mine, () => {
+          void rooms.fetch();
+          void invitations.fetch();
+        });
 
         syncRoomChannels();
         unsubscribeStore = useRooms.subscribe((s, prev) => {

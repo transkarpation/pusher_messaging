@@ -7,13 +7,13 @@ import { UserPicker } from "./UserPicker";
 
 export function CreateRoomModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
-  const [members, setMembers] = useState<User[]>([]);
+  const [invitees, setInvitees] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const parsed = createRoomSchema.safeParse({ name, memberIds: members.map((m) => m.id) });
+    const parsed = createRoomSchema.safeParse({ name, inviteIds: invitees.map((u) => u.id) });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Invalid input");
       return;
@@ -40,8 +40,9 @@ export function CreateRoomModal({ onClose }: { onClose: () => void }) {
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Weekend plans" />
         </label>
         <div className="stack">
-          <span className="label">Members</span>
-          <UserPicker selected={members} onChange={setMembers} />
+          <span className="label">Invite people</span>
+          <UserPicker selected={invitees} onChange={setInvitees} />
+          <span className="muted small">They'll join once they accept the invite.</span>
         </div>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting}>

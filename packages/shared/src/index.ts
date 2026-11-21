@@ -31,14 +31,15 @@ const userIds = z.array(z.number().int().positive()).max(100, "Too many users");
 
 export const createRoomSchema = z.object({
   name: z.string().trim().min(1, "Room name is required").max(64, "Room name is too long"),
-  memberIds: userIds.default([]),
+  /** People to invite; they join once they accept. */
+  inviteIds: userIds.default([]),
 });
 export type CreateRoomInput = z.input<typeof createRoomSchema>;
 
-export const addMembersSchema = z.object({
+export const inviteSchema = z.object({
   userIds: userIds.min(1, "Pick at least one person"),
 });
-export type AddMembersInput = z.infer<typeof addMembersSchema>;
+export type InviteInput = z.infer<typeof inviteSchema>;
 
 export interface User {
   id: number;
@@ -76,12 +77,31 @@ export interface Receipt {
   readUpTo: number;
 }
 
+/** A pending invite to a room, as members of that room see it. */
+export interface RoomInvite {
+  user: User;
+  /** Null if the inviter's account was deleted. */
+  invitedBy: User | null;
+  createdAt: string;
+}
+
+/** A pending invite, as the invited user sees it (they can't see the room itself yet). */
+export interface Invitation {
+  roomId: number;
+  roomName: string;
+  invitedBy: User | null;
+  memberCount: number;
+  createdAt: string;
+}
+
 /** A room as seen by the current user. */
 export interface Room {
   id: number;
   name: string;
   createdAt: string;
   members: RoomMember[];
+  /** People invited who haven't accepted or declined yet. */
+  invites: RoomInvite[];
   lastMessage: Message | null;
   /** Messages from others newer than the current user's read watermark (deleted ones excluded). */
   unreadCount: number;
@@ -141,9 +161,12 @@ export const MESSAGE_DELETED_EVENT = "message:deleted";
 export const USER_TYPING_EVENT = "user:typing";
 export const RECEIPT_UPDATED_EVENT = "receipt:updated";
 export const ROOM_MEMBERS_EVENT = "room:members";
+export const ROOM_INVITES_EVENT = "room:invites";
 // user channel events
 export const ROOM_ADDED_EVENT = "room:added";
 export const ROOM_REMOVED_EVENT = "room:removed";
+export const INVITATION_ADDED_EVENT = "invitation:added";
+export const INVITATION_REMOVED_EVENT = "invitation:removed";
 // online channel events
 export const USER_UPDATED_EVENT = "user:updated";
 
@@ -164,6 +187,16 @@ export interface RoomMembersEvent {
 }
 
 export interface RoomRemovedEvent {
+  roomId: number;
+}
+
+export interface RoomInvitesEvent {
+  roomId: number;
+  invites: RoomInvite[];
+}
+
+/** INVITATION_ADDED_EVENT carries an `Invitation`; this one says it's gone (accepted, declined or cancelled). */
+export interface InvitationRemovedEvent {
   roomId: number;
 }
 

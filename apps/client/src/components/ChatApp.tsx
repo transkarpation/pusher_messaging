@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@pm/shared";
 import { useReceiptsReporter } from "../hooks/useReceiptsReporter";
 import { useRealtime } from "../hooks/useRealtime";
+import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
 import { useRooms } from "../store/rooms";
 import { CreateRoomModal } from "./CreateRoomModal";
@@ -19,9 +20,11 @@ export function ChatApp({ user }: { user: User }) {
 
   useEffect(() => {
     void useRooms.getState().fetch();
+    void useInvitations.getState().fetch();
     return () => {
       useRooms.getState().reset();
       useMessages.getState().reset();
+      useInvitations.getState().reset();
     };
   }, []);
 

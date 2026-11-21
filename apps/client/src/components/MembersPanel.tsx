@@ -4,7 +4,7 @@ import { api } from "../api";
 import { displayName } from "../lib/users";
 import { useOnline } from "../store/online";
 import { useRooms } from "../store/rooms";
-import { AddMembersModal } from "./AddMembersModal";
+import { InviteModal } from "./InviteModal";
 
 export function MembersPanel({ room, me }: { room: Room; me: User }) {
   const online = useOnline((s) => s.users);
@@ -42,6 +42,16 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
     }
   };
 
+  const cancelInvite = async (user: User) => {
+    try {
+      const { invites } = await api.cancelInvite(room.id, user.id);
+      useRooms.getState().setInvites(room.id, invites);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   return (
     <aside className="members">
       <div className="members-header">
@@ -50,7 +60,7 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
           <span className="muted"> · {onlineCount} online</span>
         </h3>
         <button type="button" className="secondary" onClick={() => setAdding(true)}>
-          + Add people
+          + Invite people
         </button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -81,12 +91,46 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
           );
         })}
       </ul>
+      {room.invites.length > 0 && (
+        <>
+          <h3>Invited · {room.invites.length}</h3>
+          <ul>
+            {room.invites.map(({ user, invitedBy }) => {
+              const canCancel = myRole === "owner" || invitedBy?.id === me.id;
+              return (
+                <li key={user.id} className="invited">
+                  <span className="dot pending" title="Invite pending" />
+                  <span className="member-name">
+                    {displayName(user)}
+                    {invitedBy && (
+                      <span className="muted small invited-by">
+                        {" "}· invited by {invitedBy.id === me.id ? "you" : displayName(invitedBy)}
+                      </span>
+                    )}
+                  </span>
+                  {canCancel && (
+                    <button
+                      type="button"
+                      className="ghost icon"
+                      aria-label={`Cancel invite for ${displayName(user)}`}
+                      title="Cancel invite"
+                      onClick={() => void cancelInvite(user)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
       {myRole === "member" && (
         <button type="button" className="link danger" onClick={() => void remove(me)}>
           Leave room
         </button>
       )}
-      {adding && <AddMembersModal room={room} onClose={() => setAdding(false)} />}
+      {adding && <InviteModal room={room} onClose={() => setAdding(false)} />}
     </aside>
   );
 }

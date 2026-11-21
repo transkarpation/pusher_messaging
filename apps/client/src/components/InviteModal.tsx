@@ -5,7 +5,7 @@ import { useRooms } from "../store/rooms";
 import { Modal } from "./Modal";
 import { UserPicker } from "./UserPicker";
 
-export function AddMembersModal({ room, onClose }: { room: Room; onClose: () => void }) {
+export function InviteModal({ room, onClose }: { room: Room; onClose: () => void }) {
   const [selected, setSelected] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -15,8 +15,8 @@ export function AddMembersModal({ room, onClose }: { room: Room; onClose: () => 
     if (selected.length === 0) return;
     setSubmitting(true);
     try {
-      const { members } = await api.addMembers(room.id, { userIds: selected.map((u) => u.id) });
-      useRooms.getState().setMembers(room.id, members);
+      const { invites } = await api.invite(room.id, { userIds: selected.map((u) => u.id) });
+      useRooms.getState().setInvites(room.id, invites);
       onClose();
     } catch (err) {
       setError((err as Error).message);
@@ -25,16 +25,18 @@ export function AddMembersModal({ room, onClose }: { room: Room; onClose: () => 
   };
 
   return (
-    <Modal title={`Add people to ${room.name}`} onClose={onClose}>
+    <Modal title={`Invite people to ${room.name}`} onClose={onClose}>
       <form onSubmit={onSubmit} className="stack">
         <UserPicker
           selected={selected}
           onChange={setSelected}
-          excludeIds={room.members.map((m) => m.user.id)}
+          // Members and people already invited can't be invited again.
+          excludeIds={[...room.members.map((m) => m.user.id), ...room.invites.map((i) => i.user.id)]}
         />
+        <p className="muted small">They'll join once they accept the invite.</p>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting || selected.length === 0}>
-          {submitting ? "…" : selected.length > 1 ? `Add ${selected.length} people` : "Add"}
+          {submitting ? "…" : selected.length > 1 ? `Send ${selected.length} invites` : "Send invite"}
         </button>
       </form>
     </Modal>

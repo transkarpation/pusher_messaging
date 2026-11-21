@@ -55,6 +55,21 @@ export const roomMembers = pgTable(
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_members_user_id_idx").on(t.userId)],
 );
 
+export const roomInvites = pgTable(
+  "room_invites",
+  {
+    roomId: integer("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    invitedBy: integer("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_invites_user_id_idx").on(t.userId)],
+);
+
 export const messages = pgTable(
   "messages",
   {

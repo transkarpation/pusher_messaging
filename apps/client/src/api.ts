@@ -1,14 +1,16 @@
 import {
   SOCKET_ID_HEADER,
-  type AddMembersInput,
   type CreateMessageInput,
   type CreateRoomInput,
   type Credentials,
+  type Invitation,
+  type InviteInput,
   type Message,
   type MessagesResponse,
   type RealtimeConfig,
   type Receipt,
   type Room,
+  type RoomInvite,
   type RoomMember,
   type TypingInput,
   type UpdateMessageInput,
@@ -58,8 +60,10 @@ export const api = {
 
   getRooms: () => request<Room[]>("/rooms"),
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
-  addMembers: (roomId: number, input: AddMembersInput) =>
-    request<{ members: RoomMember[] }>(`${room(roomId)}/members`, "POST", input),
+  invite: (roomId: number, input: InviteInput) =>
+    request<{ invites: RoomInvite[] }>(`${room(roomId)}/invites`, "POST", input),
+  cancelInvite: (roomId: number, userId: number) =>
+    request<{ invites: RoomInvite[] }>(`${room(roomId)}/invites/${userId}`, "DELETE"),
   removeMember: (roomId: number, userId: number) =>
     request<{ members: RoomMember[] }>(`${room(roomId)}/members/${userId}`, "DELETE"),
 
@@ -78,6 +82,10 @@ export const api = {
     request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
   sendTyping: (roomId: number, input: TypingInput) =>
     request<void>(`${room(roomId)}/typing`, "POST", input),
+
+  getInvitations: () => request<Invitation[]>("/invites"),
+  acceptInvitation: (roomId: number) => request<Room>(`/invites/${roomId}/accept`, "POST"),
+  declineInvitation: (roomId: number) => request<void>(`/invites/${roomId}/decline`, "POST"),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
 };

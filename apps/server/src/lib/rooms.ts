@@ -7,6 +7,7 @@ import {
   type RoomMember,
 } from "@pm/shared";
 import { db, schema } from "../db/index.js";
+import { loadRoomInvites } from "./invites.js";
 import { broadcast } from "./pusher.js";
 
 const { users, rooms, roomMembers, messages, receipts } = schema;
@@ -52,7 +53,7 @@ export async function loadMembers(roomId: number): Promise<RoomMember[]> {
     .orderBy(roomMembers.joinedAt);
 }
 
-/** Rooms the user belongs to (optionally only `onlyIds`), with per-user unread counts. */
+/** Rooms the user belongs to (optionally only `onlyIds`), with per-user unread counts and pending invites. */
 export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Room[]> {
   const base = await db
     .select({ id: rooms.id, name: rooms.name, createdAt: rooms.createdAt })
@@ -62,7 +63,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
   if (base.length === 0) return [];
   const ids = base.map((r) => r.id);
 
-  const [memberRows, lastRows, unreadRows, myReceipts] = await Promise.all([
+  const [memberRows, lastRows, unreadRows, myReceipts, inviteRows] = await Promise.all([
     db
       .select({ roomId: roomMembers.roomId, role: roomMembers.role, user: userColumns })
       .from(roomMembers)
@@ -92,6 +93,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
       .select()
       .from(receipts)
       .where(and(eq(receipts.userId, userId), inArray(receipts.roomId, ids))),
+    loadRoomInvites(ids),
   ]);
 
   return base.map((r) => {
@@ -102,6 +104,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
       name: r.name,
       createdAt: r.createdAt.toISOString(),
       members: memberRows.filter((m) => m.roomId === r.id).map(({ role, user }) => ({ role, user })),
+      invites: inviteRows.filter((i) => i.roomId === r.id).map(({ roomId: _, ...invite }) => invite),
       lastMessage: last ? toMessage(last) : null,
       unreadCount: unreadRows.find((x) => x.roomId === r.id)?.count ?? 0,
       myReceipt: { deliveredUpTo: mine?.deliveredUpTo ?? 0, readUpTo: mine?.readUpTo ?? 0 },

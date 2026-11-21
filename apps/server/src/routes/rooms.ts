@@ -4,8 +4,8 @@ import {
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
   USER_TYPING_EVENT,
-  addMembersSchema,
   createRoomSchema,
+  inviteSchema,
   roomChannel,
   typingSchema,
   userChannel,
@@ -15,7 +15,13 @@ import {
 } from "@pm/shared";
 import { db, schema } from "../db/index.js";
 import { broadcast } from "../lib/pusher.js";
-import { loadMembers, loadRooms, notifyAdded } from "../lib/rooms.js";
+import {
+  broadcastRoomInvites,
+  createInvites,
+  notifyInvitationRemoved,
+  notifyInvited,
+} from "../lib/invites.js";
+import { loadMembers, loadRooms } from "../lib/rooms.js";
 import { parseBody } from "../lib/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireRoomMember } from "../middleware/room.js";
@@ -43,23 +49,25 @@ roomsRouter.post("/", async (req, res) => {
   const input = parseBody(createRoomSchema, req.body, res);
   if (!input) return;
   const me = req.user!;
-  const memberIds = await existingUserIds(input.memberIds, me.id);
+  const inviteIds = await existingUserIds(input.inviteIds, me.id);
 
   const roomId = await db.transaction(async (tx) => {
     const [room] = await tx
       .insert(schema.rooms)
       .values({ name: input.name, createdBy: me.id })
       .returning({ id: schema.rooms.id });
-    await tx.insert(schema.roomMembers).values([
-      { roomId: room!.id, userId: me.id, role: "owner" as const },
-      ...memberIds.map((userId) => ({ roomId: room!.id, userId, role: "member" as const })),
-    ]);
+    await tx.insert(schema.roomMembers).values({ roomId: room!.id, userId: me.id, role: "owner" });
+    if (inviteIds.length > 0) {
+      await tx
+        .insert(schema.roomInvites)
+        .values(inviteIds.map((userId) => ({ roomId: room!.id, userId, invitedBy: me.id })));
+    }
     return room!.id;
   });
 
   const [room] = await loadRooms(me.id, [roomId]);
   res.status(201).json(room);
-  void notifyAdded(roomId, memberIds);
+  void notifyInvited(roomId, inviteIds);
 });
 
 // Everything below acts on a specific room the caller belongs to.
@@ -78,28 +86,49 @@ const broadcastMembers = async (roomId: number, req: Parameters<typeof broadcast
   return members;
 };
 
-/** Any member may add people. */
-roomsRouter.post("/:roomId/members", async (req, res) => {
-  const input = parseBody(addMembersSchema, req.body, res);
+/** Any member may invite people; they join once they accept (see routes/invites.ts). */
+roomsRouter.post("/:roomId/invites", async (req, res) => {
+  const input = parseBody(inviteSchema, req.body, res);
   if (!input) return;
   const roomId = req.room!.id;
   const candidates = await existingUserIds(input.userIds, req.user!.id);
+  const invited = await createInvites(roomId, req.user!.id, candidates);
 
-  const added =
-    candidates.length === 0
-      ? []
-      : await db
-          .insert(schema.roomMembers)
-          .values(candidates.map((userId) => ({ roomId, userId })))
-          .onConflictDoNothing()
-          .returning({ userId: schema.roomMembers.userId });
+  const invites = await broadcastRoomInvites(roomId, req);
+  res.json({ invites });
+  void notifyInvited(roomId, invited);
+});
 
-  const members = added.length > 0 ? await broadcastMembers(roomId, req) : await loadMembers(roomId);
-  res.json({ members });
-  void notifyAdded(
-    roomId,
-    added.map((a) => a.userId),
-  );
+/** The owner, or whoever sent the invite, may cancel it. */
+roomsRouter.delete("/:roomId/invites/:userId", async (req, res) => {
+  const roomId = req.room!.id;
+  const targetId = Number(req.params.userId);
+  const { roomInvites } = schema;
+
+  const [removed] = await db
+    .delete(roomInvites)
+    .where(
+      and(
+        eq(roomInvites.roomId, roomId),
+        eq(roomInvites.userId, targetId),
+        req.room!.role === "owner" ? undefined : eq(roomInvites.invitedBy, req.user!.id),
+      ),
+    )
+    .returning({ userId: roomInvites.userId });
+  if (!removed) {
+    const [exists] = await db
+      .select({ userId: roomInvites.userId })
+      .from(roomInvites)
+      .where(and(eq(roomInvites.roomId, roomId), eq(roomInvites.userId, targetId)))
+      .limit(1);
+    if (exists) res.status(403).json({ error: "Only the owner or the inviter can cancel an invite" });
+    else res.status(404).json({ error: "Invite not found" });
+    return;
+  }
+
+  const invites = await broadcastRoomInvites(roomId, req);
+  res.json({ invites });
+  notifyInvitationRemoved(targetId, roomId);
 });
 
 /** The owner may remove anyone else; any non-owner may remove themselves (leave). */

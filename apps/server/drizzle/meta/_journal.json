@@ -36,6 +36,13 @@
       "when": 1795296564666,
       "tag": "0004_groovy_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795297069910,
+      "tag": "0005_eager_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

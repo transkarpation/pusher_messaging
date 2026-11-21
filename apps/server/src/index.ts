@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from "express";
 import cookieParser from "cookie-parser";
 import { authRouter } from "./routes/auth.js";
+import { invitesRouter } from "./routes/invites.js";
 import { roomsRouter } from "./routes/rooms.js";
 import { usersRouter } from "./routes/users.js";
 import { realtimeRouter } from "./routes/realtime.js";
@@ -17,6 +18,7 @@ app.get("/api/health", (_req, res) => {
 });
 app.use("/api/auth", authRouter);
 app.use("/api/rooms", roomsRouter);
+app.use("/api/invites", invitesRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/realtime", realtimeRouter);
 

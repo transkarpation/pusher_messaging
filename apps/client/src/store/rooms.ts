@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, Receipt, Room, RoomMember, User } from "@pm/shared";
+import type { Message, Receipt, Room, RoomInvite, RoomMember, User } from "@pm/shared";
 import { api } from "../api";
 import { latestVersion } from "../lib/messageVersion";
 
@@ -63,6 +63,7 @@ interface RoomsState {
   remove: (roomId: number) => void;
   setActive: (roomId: number | null) => void;
   setMembers: (roomId: number, members: RoomMember[]) => void;
+  setInvites: (roomId: number, invites: RoomInvite[]) => void;
   /** Updates last message and unread count for a new message in a room. */
   onMessage: (message: Message, opts: { fromMe: boolean; viewing: boolean }) => void;
   /** Refreshes the last message if it is the one that was edited. */
@@ -118,6 +119,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
     set((s) => {
       const room = s.rooms[roomId];
       return room ? { rooms: { ...s.rooms, [roomId]: { ...room, members } } } : s;
+    }),
+
+  setInvites: (roomId, invites) =>
+    set((s) => {
+      const room = s.rooms[roomId];
+      return room ? { rooms: { ...s.rooms, [roomId]: { ...room, invites } } } : s;
     }),
 
   onMessage: (message, { fromMe, viewing }) =>
@@ -180,6 +187,11 @@ export const useRooms = create<RoomsState>((set, get) => ({
         rooms[room.id] = {
           ...room,
           members: room.members.map((m) => (m.user.id === user.id ? { ...m, user } : m)),
+          invites: room.invites.map((i) => ({
+            ...i,
+            user: i.user.id === user.id ? user : i.user,
+            invitedBy: i.invitedBy?.id === user.id ? user : i.invitedBy,
+          })),
           lastMessage:
             room.lastMessage?.author.id === user.id
               ? { ...room.lastMessage, author: user }

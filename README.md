@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms, messages (editable and deletable), typing indicators, delivered/read receipts and online presence. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
+Real-time chat with rooms, invitations, messages (editable and deletable), typing indicators, delivered/read receipts and online presence. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
 
 ## Stack
 
@@ -79,12 +79,23 @@ Real-time chat with rooms, messages (editable and deletable), typing indicators,
 | Channel | Events |
 |---|---|
 | `presence-online` | who is online, profile updates |
-| `private-user-{id}` | the user was added to or removed from a room |
-| `private-room-{id}` | new, edited and deleted messages, typing, receipts, member changes |
+| `private-user-{id}` | invitations received or gone, the user joined or was removed from a room |
+| `private-room-{id}` | new, edited and deleted messages, typing, receipts, member and invite changes |
 
 Private and presence channels are authorized via `POST /api/realtime/pusher/auth`. Only members of a room can subscribe to its channel.
 
 The client loads its initial state over REST: `GET /api/rooms` for the room list, and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
+
+## Invitations
+
+People don't join a room the moment they're added: they get an invitation and join once they accept it.
+
+- `POST /api/rooms/:id/invites` with `{ "userIds": [...] }`. Any member can invite. Current members and people already invited are skipped. Creating a room with `inviteIds` invites those people the same way.
+- `DELETE /api/rooms/:id/invites/:userId` cancels an invite. Only the room owner or whoever sent it can do that.
+- `GET /api/invites` lists the current user's pending invitations: room name, who invited them, member count. An invited user can't read the room until they accept.
+- `POST /api/invites/:roomId/accept` makes the user a member and returns the `Room`. `POST /api/invites/:roomId/decline` drops the invitation.
+
+The invitee gets `invitation:added` / `invitation:removed` on their user channel and sees invitations at the top of the sidebar with Accept and Decline. Room members get `room:invites` on the room channel and see pending invites, with who sent them, in the member list. After a reconnect the client refetches invitations along with the room list.
 
 ## Editing and deleting messages
 

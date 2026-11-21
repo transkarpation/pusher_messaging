@@ -4,6 +4,7 @@ import { deletedLabel, displayName } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
 import { CreateRoomModal } from "./CreateRoomModal";
+import { Invitations } from "./Invitations";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function Sidebar({ me }: { me: User }) {
@@ -36,6 +37,8 @@ export function Sidebar({ me }: { me: User }) {
           + New room
         </button>
       </div>
+
+      <Invitations />
 
       <ul className="room-list">
         {loaded && rooms.length === 0 && <li className="muted empty">No rooms yet</li>}
