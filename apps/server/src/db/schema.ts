@@ -70,6 +70,8 @@ export const roomInvites = pgTable(
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_invites_user_id_idx").on(t.userId)],
 );
 
+export const messageKind = pgEnum("message_kind", ["text", "member_joined"]);
+
 export const messages = pgTable(
   "messages",
   {
@@ -80,6 +82,7 @@ export const messages = pgTable(
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    kind: messageKind("kind").notNull().default("text"),
     text: text("text").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     editedAt: timestamp("edited_at", { withTimezone: true }),

@@ -17,6 +17,7 @@ export const userColumns = { id: users.id, username: users.username, name: users
 export const messageColumns = {
   id: messages.id,
   roomId: messages.roomId,
+  kind: messages.kind,
   text: messages.text,
   createdAt: messages.createdAt,
   editedAt: messages.editedAt,
@@ -84,6 +85,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
         and(
           inArray(messages.roomId, ids),
           ne(messages.userId, userId),
+          eq(messages.kind, "text"),
           isNull(messages.deletedAt),
           gt(messages.id, sql`coalesce(${receipts.readUpTo}, 0)`),
         ),

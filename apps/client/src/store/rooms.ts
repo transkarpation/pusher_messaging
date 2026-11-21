@@ -64,7 +64,7 @@ interface RoomsState {
   setActive: (roomId: number | null) => void;
   setMembers: (roomId: number, members: RoomMember[]) => void;
   setInvites: (roomId: number, invites: RoomInvite[]) => void;
-  /** Updates last message and unread count for a new message in a room. */
+  /** Updates last message and unread count (regular messages only) for a new message in a room. */
   onMessage: (message: Message, opts: { fromMe: boolean; viewing: boolean }) => void;
   /** Refreshes the last message if it is the one that was edited. */
   onMessageUpdated: (message: Message) => void;
@@ -138,7 +138,8 @@ export const useRooms = create<RoomsState>((set, get) => ({
           [room.id]: {
             ...room,
             lastMessage: isNewer ? message : room.lastMessage,
-            unreadCount: room.unreadCount + (isNewer && !fromMe && !viewing ? 1 : 0),
+            unreadCount:
+              room.unreadCount + (isNewer && !fromMe && !viewing && message.kind === "text" ? 1 : 0),
           },
         },
       };

@@ -43,6 +43,13 @@
       "when": 1795297069910,
       "tag": "0005_eager_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795297416498,
+      "tag": "0006_green_christian_walker",
+      "breakpoints": true
     }
   ]
 }

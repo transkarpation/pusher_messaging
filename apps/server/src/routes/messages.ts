@@ -73,6 +73,7 @@ messagesRouter.post("/messages", async (req, res) => {
   const message: Message = {
     id: row!.id,
     roomId,
+    kind: "text",
     text: row!.text,
     createdAt: row!.createdAt.toISOString(),
     editedAt: null,
@@ -94,7 +95,7 @@ function messageIdParam(req: { params: Record<string, string | undefined> }, res
   return id;
 }
 
-/** Author of a live (not deleted) message in this room, or null if there is none. */
+/** Author of a live (regular, not deleted) message in this room, or null if there is none. */
 async function messageAuthor(roomId: number, messageId: number) {
   const [row] = await db
     .select({ userId: schema.messages.userId })
@@ -103,6 +104,7 @@ async function messageAuthor(roomId: number, messageId: number) {
       and(
         eq(schema.messages.id, messageId),
         eq(schema.messages.roomId, roomId),
+        eq(schema.messages.kind, "text"),
         isNull(schema.messages.deletedAt),
       ),
     )
@@ -110,7 +112,10 @@ async function messageAuthor(roomId: number, messageId: number) {
   return row?.userId ?? null;
 }
 
-/** Updates a live message in this room, returning it as a `Message`, or null if nothing matched. */
+/**
+ * Updates a live message in this room, returning it as a `Message`, or null if nothing matched.
+ * System messages never match, so they can't be edited or deleted.
+ */
 async function updateMessage(
   roomId: number,
   messageId: number,
@@ -125,6 +130,7 @@ async function updateMessage(
       and(
         eq(messages.id, messageId),
         eq(messages.roomId, roomId),
+        eq(messages.kind, "text"),
         isNull(messages.deletedAt),
         onlyAuthorId === null ? undefined : eq(messages.userId, onlyAuthorId),
       ),

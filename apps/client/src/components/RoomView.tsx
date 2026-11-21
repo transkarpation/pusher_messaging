@@ -10,7 +10,7 @@ import {
 import type { Message, Room, User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
 import { deliveryOf } from "../lib/delivery";
-import { deletedLabel, displayName } from "../lib/users";
+import { deletedLabel, displayName, systemText } from "../lib/users";
 import { EMPTY_ROOM, useMessages } from "../store/messages";
 import { useRooms } from "../store/rooms";
 import { DeleteMessageModal } from "./DeleteMessageModal";
@@ -42,8 +42,8 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = room.members.some((m) => m.user.id === me.id && m.role === "owner");
-  const canEdit = (m: Message) => !m.deletedAt && m.author.id === me.id;
-  const canDelete = (m: Message) => !m.deletedAt && (m.author.id === me.id || isOwner);
+  const canEdit = (m: Message) => m.kind === "text" && !m.deletedAt && m.author.id === me.id;
+  const canDelete = (m: Message) => m.kind === "text" && !m.deletedAt && (m.author.id === me.id || isOwner);
 
   // Focus the composer when a room opens (the component remounts per room).
   // Skipped on touch devices, where it would pop up the on-screen keyboard.
@@ -175,6 +175,14 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
               const own = m.author.id === me.id;
               const editable = canEdit(m);
               const deletable = canDelete(m);
+              const system = systemText(m, me.id);
+              if (system !== null) {
+                return (
+                  <li key={m.id} className="system" title={dateTime(m.createdAt)}>
+                    {system}
+                  </li>
+                );
+              }
               if (m.deletedAt) {
                 return (
                   <li key={m.id} className={own ? "own deleted" : "deleted"}>

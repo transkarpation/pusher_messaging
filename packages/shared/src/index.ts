@@ -47,9 +47,16 @@ export interface User {
   name: string | null;
 }
 
+/**
+ * "text": a regular message written by `author`.
+ * "member_joined": a system line that `author` joined the room (accepted an invite); `text` is "".
+ */
+export type MessageKind = "text" | "member_joined";
+
 export interface Message {
   id: number;
   roomId: number;
+  kind: MessageKind;
   text: string;
   createdAt: string;
   /** Set once the author has edited the text. */
@@ -103,7 +110,7 @@ export interface Room {
   /** People invited who haven't accepted or declined yet. */
   invites: RoomInvite[];
   lastMessage: Message | null;
-  /** Messages from others newer than the current user's read watermark (deleted ones excluded). */
+  /** Messages from others newer than the current user's read watermark (deleted and system ones excluded). */
   unreadCount: number;
   /** The current user's own watermarks in this room. */
   myReceipt: { deliveredUpTo: number; readUpTo: number };

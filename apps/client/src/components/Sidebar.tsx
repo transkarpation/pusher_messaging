@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { User } from "@pm/shared";
-import { deletedLabel, displayName } from "../lib/users";
+import { deletedLabel, displayName, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
 import { CreateRoomModal } from "./CreateRoomModal";
@@ -45,7 +45,9 @@ export function Sidebar({ me }: { me: User }) {
         {rooms.map((room) => {
           const last = room.lastMessage;
           const preview = last
-            ? last.deletedAt
+            ? last.kind !== "text"
+              ? systemText(last, me.id)
+              : last.deletedAt
               ? deletedLabel(last.author.id === me.id)
               : `${last.author.id === me.id ? "You" : displayName(last.author)}: ${last.text}`
             : `${room.members.length} member${room.members.length === 1 ? "" : "s"}`;

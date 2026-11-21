@@ -93,7 +93,9 @@ People don't join a room the moment they're added: they get an invitation and jo
 - `POST /api/rooms/:id/invites` with `{ "userIds": [...] }`. Any member can invite. Current members and people already invited are skipped. Creating a room with `inviteIds` invites those people the same way.
 - `DELETE /api/rooms/:id/invites/:userId` cancels an invite. Only the room owner or whoever sent it can do that.
 - `GET /api/invites` lists the current user's pending invitations: room name, who invited them, member count. An invited user can't read the room until they accept.
-- `POST /api/invites/:roomId/accept` makes the user a member and returns the `Room`. `POST /api/invites/:roomId/decline` drops the invitation.
+- `POST /api/invites/:roomId/accept` makes the user a member, posts a "joined the room" system message, and returns the `Room`. `POST /api/invites/:roomId/decline` drops the invitation.
+
+Messages have a `kind`: `text` for regular ones, `member_joined` for the system line shown when someone accepts an invite. System messages arrive as `message:created` like any other, appear centered in the chat and as the room preview, don't count as unread, and can't be edited or deleted.
 
 The invitee gets `invitation:added` / `invitation:removed` on their user channel and sees invitations at the top of the sidebar with Accept and Decline. Room members get `room:invites` on the room channel and see pending invites, with who sent them, in the member list. After a reconnect the client refetches invitations along with the room list.
 
