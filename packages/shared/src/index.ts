@@ -24,6 +24,9 @@ export const createMessageSchema = z.object({
 });
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 
+export const updateMessageSchema = createMessageSchema;
+export type UpdateMessageInput = z.infer<typeof updateMessageSchema>;
+
 const userIds = z.array(z.number().int().positive()).max(100, "Too many users");
 
 export const createRoomSchema = z.object({
@@ -48,6 +51,10 @@ export interface Message {
   roomId: number;
   text: string;
   createdAt: string;
+  /** Set once the author has edited the text. */
+  editedAt: string | null;
+  /** Set once the message is deleted; it stays as a placeholder and `text` is "". */
+  deletedAt: string | null;
   author: User;
 }
 
@@ -76,7 +83,7 @@ export interface Room {
   createdAt: string;
   members: RoomMember[];
   lastMessage: Message | null;
-  /** Messages from others newer than the current user's read watermark. */
+  /** Messages from others newer than the current user's read watermark (deleted ones excluded). */
   unreadCount: number;
   /** The current user's own watermarks in this room. */
   myReceipt: { deliveredUpTo: number; readUpTo: number };
@@ -129,6 +136,8 @@ export const USER_CHANNEL_RE = /^private-user-(\d+)$/;
 
 // room channel events
 export const MESSAGE_CREATED_EVENT = "message:created";
+export const MESSAGE_UPDATED_EVENT = "message:updated";
+export const MESSAGE_DELETED_EVENT = "message:deleted";
 export const USER_TYPING_EVENT = "user:typing";
 export const RECEIPT_UPDATED_EVENT = "receipt:updated";
 export const ROOM_MEMBERS_EVENT = "room:members";
@@ -143,6 +152,11 @@ export interface TypingEvent {
   userId: number;
   typing: boolean;
 }
+
+/**
+ * MESSAGE_UPDATED_EVENT and MESSAGE_DELETED_EVENT both carry the full `Message`
+ * (for a deletion: with `deletedAt` set and empty `text`).
+ */
 
 export interface RoomMembersEvent {
   roomId: number;

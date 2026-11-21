@@ -1,6 +1,12 @@
 import { create } from "zustand";
-import { MESSAGES_PAGE_SIZE, type Message, type Receipt, type User } from "@pm/shared";
+import {
+  MESSAGES_PAGE_SIZE,
+  type Message,
+  type Receipt,
+  type User,
+} from "@pm/shared";
 import { api } from "../api";
+import { latestVersion } from "../lib/messageVersion";
 import { useRooms } from "./rooms";
 
 /** A message the server hasn't confirmed yet. */
@@ -35,25 +41,43 @@ interface MessagesState {
   fetch: (roomId: number) => Promise<void>;
   /**
    * Loads messages missed while realtime was disconnected (everything after the
-   * newest one we have). Rooms not loaded yet are left to `fetch`.
+   * newest one we have), then refetches the latest page to pick up edits and
+   * deletions made meanwhile. Rooms not loaded yet are left to `fetch`.
    */
   catchUp: (roomId: number) => Promise<void>;
   send: (roomId: number, text: string) => Promise<void>;
   retry: (roomId: number, tempId: string) => Promise<void>;
+  /** Saves new text of the caller's own message. Throws on failure. */
+  edit: (roomId: number, messageId: number, text: string) => Promise<void>;
+  /** Deletes a message (own, or anyone's for the room owner), leaving a placeholder. Throws on failure. */
+  remove: (roomId: number, messageId: number, meId: number) => Promise<void>;
   /** Adds a realtime message (deduplicated); ignored for rooms not loaded yet. */
   receive: (message: Message) => void;
+  /** Applies an edited message here and in the room list. */
+  applyUpdate: (message: Message) => void;
+  /** Applies a deletion here and in the room list; a repeated one is ignored. */
+  applyDelete: (message: Message, meId: number) => void;
   applyReceipt: (receipt: Receipt) => void;
   updateAuthor: (user: User) => void;
   drop: (roomId: number) => void;
   reset: () => void;
 }
 
-/** Merges lists by id and keeps them ordered, so realtime events and fetches can interleave. */
+/**
+ * Merges lists by id and keeps them ordered, so realtime events and fetches can interleave.
+ * For the same id the most recent version wins (see `latestVersion`).
+ */
 const merge = (a: Message[], b: Message[]) => {
   const byId = new Map<number, Message>();
-  for (const m of [...a, ...b]) byId.set(m.id, m);
+  for (const m of [...a, ...b]) {
+    const prev = byId.get(m.id);
+    byId.set(m.id, prev ? latestVersion(prev, m) : m);
+  }
   return [...byId.values()].sort((x, y) => x.id - y.id);
 };
+
+/** Ids whose deletion was already applied, so the unread count isn't decremented twice. */
+const appliedDeletions = new Set<number>();
 
 /** Watermarks only move forward, so out-of-order events can't regress them. */
 const mergeReceipt = (prev: Receipt | undefined, next: Receipt): Receipt =>
@@ -101,6 +125,15 @@ export const useMessages = create<MessagesState>((set, get) => {
     }
   };
 
+  /**
+   * Refetches the latest page, picking up edits and deletions made while we were
+   * offline. Older messages outside that page keep the version we have.
+   */
+  const resyncLatest = async (roomId: number) => {
+    const { messages: page, receipts } = await api.getMessages(roomId);
+    patch(roomId, (r) => mergePage(r, page, receipts));
+  };
+
   return {
     byRoom: {},
 
@@ -131,7 +164,10 @@ export const useMessages = create<MessagesState>((set, get) => {
           const { messages, receipts } = await api.getMessages(roomId, after);
           if (!get().byRoom[roomId]) return; // room left meanwhile
           patch(roomId, (r) => mergePage(r, messages, receipts));
-          if (messages.length < MESSAGES_PAGE_SIZE) return;
+          if (messages.length < MESSAGES_PAGE_SIZE) {
+            await resyncLatest(roomId);
+            return;
+          }
           after = messages.at(-1)!.id;
         }
         // Too far behind: start over from the latest page, like a first load, keeping unsent messages.
@@ -163,7 +199,34 @@ export const useMessages = create<MessagesState>((set, get) => {
       await post(roomId, tempId, item.text);
     },
 
+    edit: async (roomId, messageId, text) => {
+      const msg = await api.updateMessage(roomId, messageId, { text });
+      get().applyUpdate(msg);
+    },
+
+    remove: async (roomId, messageId, meId) => {
+      const msg = await api.deleteMessage(roomId, messageId);
+      get().applyDelete(msg, meId);
+    },
+
     receive: (msg) => patch(msg.roomId, (r) => ({ messages: merge(r.messages, [msg]) })),
+
+    applyUpdate: (msg) => {
+      // Only replace a message we have: adding an older one would leave a gap in the history.
+      patch(msg.roomId, (r) =>
+        r.messages.some((m) => m.id === msg.id) ? { messages: merge(r.messages, [msg]) } : {},
+      );
+      useRooms.getState().onMessageUpdated(msg);
+    },
+
+    applyDelete: (msg, meId) => {
+      if (appliedDeletions.has(msg.id)) return;
+      appliedDeletions.add(msg.id);
+      patch(msg.roomId, (r) =>
+        r.messages.some((m) => m.id === msg.id) ? { messages: merge(r.messages, [msg]) } : {},
+      );
+      useRooms.getState().onMessageDeleted(msg, { fromMe: msg.author.id === meId });
+    },
 
     applyReceipt: (rc) =>
       patch(rc.roomId, (r) => ({
@@ -188,6 +251,9 @@ export const useMessages = create<MessagesState>((set, get) => {
         return { byRoom };
       }),
 
-    reset: () => set({ byRoom: {} }),
+    reset: () => {
+      appliedDeletions.clear();
+      set({ byRoom: {} });
+    },
   };
 });

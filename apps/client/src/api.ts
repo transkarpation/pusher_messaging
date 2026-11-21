@@ -11,6 +11,7 @@ import {
   type Room,
   type RoomMember,
   type TypingInput,
+  type UpdateMessageInput,
   type UpdateProfileInput,
   type UpdateReceiptInput,
   type User,
@@ -69,6 +70,10 @@ export const api = {
     ),
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
+  updateMessage: (roomId: number, messageId: number, input: UpdateMessageInput) =>
+    request<Message>(`${room(roomId)}/messages/${messageId}`, "PATCH", input),
+  deleteMessage: (roomId: number, messageId: number) =>
+    request<Message>(`${room(roomId)}/messages/${messageId}`, "DELETE"),
   updateReceipt: (roomId: number, input: UpdateReceiptInput) =>
     request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
   sendTyping: (roomId: number, input: TypingInput) =>

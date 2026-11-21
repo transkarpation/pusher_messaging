@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms, messages, typing indicators, delivered/read receipts and online presence. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
+Real-time chat with rooms, messages (editable and deletable), typing indicators, delivered/read receipts and online presence. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
 
 ## Stack
 
@@ -80,11 +80,18 @@ Real-time chat with rooms, messages, typing indicators, delivered/read receipts 
 |---|---|
 | `presence-online` | who is online, profile updates |
 | `private-user-{id}` | the user was added to or removed from a room |
-| `private-room-{id}` | new messages, typing, receipts, member changes |
+| `private-room-{id}` | new, edited and deleted messages, typing, receipts, member changes |
 
 Private and presence channels are authorized via `POST /api/realtime/pusher/auth`. Only members of a room can subscribe to its channel.
 
 The client loads its initial state over REST: `GET /api/rooms` for the room list, and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
+
+## Editing and deleting messages
+
+- `PATCH /api/rooms/:id/messages/:messageId` with `{ "text": "..." }`. Only the author can edit. The message gets `editedAt`, and the UI shows it as "edited".
+- `DELETE /api/rooms/:id/messages/:messageId`. The author can delete their own messages, and the room owner can delete any message in the room. Deletion is soft: the row stays, with `deletedAt` set and the text wiped. The UI shows a placeholder ("This message was deleted", or "You deleted this message" for the author). Deleted messages can't be edited and don't count as unread.
+
+Both endpoints return the updated `Message` and broadcast it on the room channel as `message:updated` or `message:deleted`. Since a message may arrive from a fetch and from an event in either order, the client keeps the most recent copy: a deletion beats any edit, and otherwise the later `editedAt` wins (`latestVersion` in `apps/client/src/lib/messageVersion.ts`).
 
 ## Recovering missed events after a reconnect
 
@@ -103,6 +110,8 @@ GET /api/rooms/:id/messages?after=<last id>
 ```
 
 With `after`, the server returns the *oldest* page (up to 100) of messages with `id > after`, in ascending order. Without it, the endpoint returns the latest page, as on a first load. The client keeps requesting pages until it gets a short one, and merges each page by id along with the room's receipts.
+
+Paging by `after` only finds new messages, not edits or deletions of ones the client already has. So once it has caught up, the client also refetches the latest page and merges it in. Edits and deletions in that page show up; older messages keep the version the client had.
 
 **Edge cases.**
 

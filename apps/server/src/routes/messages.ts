@@ -1,12 +1,16 @@
-import { Router } from "express";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { Router, type Response } from "express";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   MESSAGES_PAGE_SIZE,
   MESSAGE_CREATED_EVENT,
+  MESSAGE_DELETED_EVENT,
+  MESSAGE_UPDATED_EVENT,
   RECEIPT_UPDATED_EVENT,
   createMessageSchema,
   messagesQuerySchema,
   roomChannel,
+  updateMessageSchema,
   updateReceiptSchema,
   type Message,
   type MessagesResponse,
@@ -71,11 +75,113 @@ messagesRouter.post("/messages", async (req, res) => {
     roomId,
     text: row!.text,
     createdAt: row!.createdAt.toISOString(),
+    editedAt: null,
+    deletedAt: null,
     author: user,
   };
   res.status(201).json(message);
   // The sender already has it from the response.
   broadcast(roomChannel(roomId), MESSAGE_CREATED_EVENT, message, req);
+});
+
+/** Parses `:messageId`; on failure sends 400 and returns null. */
+function messageIdParam(req: { params: Record<string, string | undefined> }, res: Response) {
+  const id = Number(req.params.messageId);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid message id" });
+    return null;
+  }
+  return id;
+}
+
+/** Author of a live (not deleted) message in this room, or null if there is none. */
+async function messageAuthor(roomId: number, messageId: number) {
+  const [row] = await db
+    .select({ userId: schema.messages.userId })
+    .from(schema.messages)
+    .where(
+      and(
+        eq(schema.messages.id, messageId),
+        eq(schema.messages.roomId, roomId),
+        isNull(schema.messages.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+/** Updates a live message in this room, returning it as a `Message`, or null if nothing matched. */
+async function updateMessage(
+  roomId: number,
+  messageId: number,
+  onlyAuthorId: number | null,
+  set: PgUpdateSetSource<typeof schema.messages>,
+): Promise<Message | null> {
+  const { messages, users } = schema;
+  const [row] = await db
+    .update(messages)
+    .set(set)
+    .where(
+      and(
+        eq(messages.id, messageId),
+        eq(messages.roomId, roomId),
+        isNull(messages.deletedAt),
+        onlyAuthorId === null ? undefined : eq(messages.userId, onlyAuthorId),
+      ),
+    )
+    .returning({ id: messages.id });
+  if (!row) return null;
+  const [full] = await db
+    .select(messageColumns)
+    .from(messages)
+    .innerJoin(users, eq(users.id, messages.userId))
+    .where(eq(messages.id, row.id));
+  return full ? toMessage(full) : null;
+}
+
+/** Only the author may edit a message, and only while it isn't deleted. */
+messagesRouter.patch("/messages/:messageId", async (req, res) => {
+  const messageId = messageIdParam(req, res);
+  if (!messageId) return;
+  const input = parseBody(updateMessageSchema, req.body, res);
+  if (!input) return;
+  const roomId = req.room!.id;
+
+  const message = await updateMessage(roomId, messageId, req.user!.id, {
+    text: input.text,
+    editedAt: sql`now()`,
+  });
+  if (!message) {
+    const author = await messageAuthor(roomId, messageId);
+    if (author === null) res.status(404).json({ error: "Message not found" });
+    else res.status(403).json({ error: "You can only edit your own messages" });
+    return;
+  }
+  res.json(message);
+  broadcast(roomChannel(roomId), MESSAGE_UPDATED_EVENT, message, req);
+});
+
+/**
+ * The author, or the room owner, may delete a message. It's kept as a placeholder
+ * ("This message was deleted") with its text wiped, so the history keeps its shape.
+ */
+messagesRouter.delete("/messages/:messageId", async (req, res) => {
+  const messageId = messageIdParam(req, res);
+  if (!messageId) return;
+  const { id: roomId, role } = req.room!;
+
+  const message = await updateMessage(roomId, messageId, role === "owner" ? null : req.user!.id, {
+    text: "",
+    deletedAt: sql`now()`,
+  });
+  if (!message) {
+    const author = await messageAuthor(roomId, messageId);
+    if (author === null) res.status(404).json({ error: "Message not found" });
+    else res.status(403).json({ error: "You can only delete your own messages" });
+    return;
+  }
+  res.json(message);
+  broadcast(roomChannel(roomId), MESSAGE_DELETED_EVENT, message, req);
 });
 
 /**

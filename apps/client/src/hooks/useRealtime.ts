@@ -3,6 +3,8 @@ import type Pusher from "pusher-js";
 import type { Channel, Members } from "pusher-js";
 import {
   MESSAGE_CREATED_EVENT,
+  MESSAGE_DELETED_EVENT,
+  MESSAGE_UPDATED_EVENT,
   ONLINE_CHANNEL,
   RECEIPT_UPDATED_EVENT,
   ROOM_ADDED_EVENT,
@@ -74,6 +76,8 @@ export function useRealtime(me: User) {
         const viewing = useRooms.getState().activeRoomId === roomId && isWindowActive();
         rooms.onMessage(m, { fromMe: m.author.id === me.id, viewing });
       },
+      [MESSAGE_UPDATED_EVENT]: (m: Message) => messages.applyUpdate(m),
+      [MESSAGE_DELETED_EVENT]: (m: Message) => messages.applyDelete(m, me.id),
       [USER_TYPING_EVENT]: (e: TypingEvent) => {
         if (e.typing) typing.start(roomId, e.userId);
         else typing.stop(roomId, e.userId);

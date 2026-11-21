@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Message, Receipt, Room, RoomMember, User } from "@pm/shared";
 import { api } from "../api";
+import { latestVersion } from "../lib/messageVersion";
 
 const ACTIVE_KEY = "pm.activeRoomId";
 
@@ -36,13 +37,18 @@ function keepNewer(fetched: Room, local: Room | undefined): Room {
   if (!local) return fetched;
   const localIsNewer =
     !!local.lastMessage && local.lastMessage.id > (fetched.lastMessage?.id ?? 0);
+  // Same last message: keep whichever copy saw the later edit/deletion.
+  const lastMessage =
+    local.lastMessage && fetched.lastMessage && local.lastMessage.id === fetched.lastMessage.id
+      ? latestVersion(local.lastMessage, fetched.lastMessage)
+      : fetched.lastMessage;
   const myReceipt = {
     deliveredUpTo: Math.max(fetched.myReceipt.deliveredUpTo, local.myReceipt.deliveredUpTo),
     readUpTo: Math.max(fetched.myReceipt.readUpTo, local.myReceipt.readUpTo),
   };
   const room = localIsNewer
     ? { ...fetched, lastMessage: local.lastMessage, unreadCount: local.unreadCount, myReceipt }
-    : { ...fetched, myReceipt };
+    : { ...fetched, lastMessage, myReceipt };
   const caughtUp = myReceipt.readUpTo >= (room.lastMessage?.id ?? 0);
   return caughtUp ? { ...room, unreadCount: 0 } : room;
 }
@@ -59,6 +65,10 @@ interface RoomsState {
   setMembers: (roomId: number, members: RoomMember[]) => void;
   /** Updates last message and unread count for a new message in a room. */
   onMessage: (message: Message, opts: { fromMe: boolean; viewing: boolean }) => void;
+  /** Refreshes the last message if it is the one that was edited. */
+  onMessageUpdated: (message: Message) => void;
+  /** Marks the last message deleted if it's that one, and drops it from the unread count. */
+  onMessageDeleted: (message: Message, opts: { fromMe: boolean }) => void;
   /** Applies the current user's own receipt (clears unread once read up to the latest). */
   applyMyReceipt: (receipt: Receipt) => void;
   updateUser: (user: User) => void;
@@ -125,6 +135,25 @@ export const useRooms = create<RoomsState>((set, get) => ({
           },
         },
       };
+    }),
+
+  onMessageUpdated: (message) =>
+    set((s) => {
+      const room = s.rooms[message.roomId];
+      if (!room?.lastMessage || room.lastMessage.id !== message.id) return s;
+      const lastMessage = latestVersion(room.lastMessage, message);
+      return { rooms: { ...s.rooms, [room.id]: { ...room, lastMessage } } };
+    }),
+
+  onMessageDeleted: (message, { fromMe }) =>
+    set((s) => {
+      const room = s.rooms[message.roomId];
+      if (!room) return s;
+      const wasUnread = !fromMe && message.id > room.myReceipt.readUpTo;
+      const lastMessage =
+        room.lastMessage?.id === message.id ? latestVersion(room.lastMessage, message) : room.lastMessage;
+      const unreadCount = Math.max(0, room.unreadCount - (wasUnread ? 1 : 0));
+      return { rooms: { ...s.rooms, [room.id]: { ...room, lastMessage, unreadCount } } };
     }),
 
   applyMyReceipt: (r) =>

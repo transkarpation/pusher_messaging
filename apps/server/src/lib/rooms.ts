@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   ROOM_ADDED_EVENT,
   userChannel,
@@ -18,12 +18,20 @@ export const messageColumns = {
   roomId: messages.roomId,
   text: messages.text,
   createdAt: messages.createdAt,
+  editedAt: messages.editedAt,
+  deletedAt: messages.deletedAt,
   author: userColumns,
 };
 
-export const toMessage = (row: { createdAt: Date } & Omit<Message, "createdAt">): Message => ({
+type Timestamps = "createdAt" | "editedAt" | "deletedAt";
+
+export const toMessage = (
+  row: { createdAt: Date; editedAt: Date | null; deletedAt: Date | null } & Omit<Message, Timestamps>,
+): Message => ({
   ...row,
   createdAt: row.createdAt.toISOString(),
+  editedAt: row.editedAt?.toISOString() ?? null,
+  deletedAt: row.deletedAt?.toISOString() ?? null,
 });
 
 export async function getMembership(roomId: number, userId: number) {
@@ -75,6 +83,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
         and(
           inArray(messages.roomId, ids),
           ne(messages.userId, userId),
+          isNull(messages.deletedAt),
           gt(messages.id, sql`coalesce(${receipts.readUpTo}, 0)`),
         ),
       )

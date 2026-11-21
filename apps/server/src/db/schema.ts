@@ -67,6 +67,8 @@ export const messages = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     text: text("text").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [index("messages_room_id_id_idx").on(t.roomId, t.id)],
 );

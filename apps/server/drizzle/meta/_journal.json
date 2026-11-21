@@ -22,6 +22,20 @@
       "when": 1795289926901,
       "tag": "0002_mighty_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795296071975,
+      "tag": "0003_lame_sharon_carter",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795296564666,
+      "tag": "0004_groovy_falcon",
+      "breakpoints": true
     }
   ]
 }
