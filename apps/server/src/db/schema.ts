@@ -70,7 +70,7 @@ export const roomInvites = pgTable(
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_invites_user_id_idx").on(t.userId)],
 );
 
-export const messageKind = pgEnum("message_kind", ["text", "member_joined"]);
+export const messageKind = pgEnum("message_kind", ["text", "member_joined", "member_left"]);
 
 export const messages = pgTable(
   "messages",

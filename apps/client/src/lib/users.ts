@@ -11,6 +11,8 @@ export function systemText(message: Message, meId: number): string | null {
   switch (message.kind) {
     case "member_joined":
       return `${who} joined the room`;
+    case "member_left":
+      return `${who} left the room`;
     case "text":
       return null;
   }

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  MESSAGE_CREATED_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
   USER_TYPING_EVENT,
@@ -9,6 +10,7 @@ import {
   roomChannel,
   typingSchema,
   userChannel,
+  type Message,
   type RoomMembersEvent,
   type RoomRemovedEvent,
   type TypingEvent,
@@ -146,17 +148,38 @@ roomsRouter.delete("/:roomId/members/:userId", async (req, res) => {
     return;
   }
 
-  const [removed] = await db
-    .delete(schema.roomMembers)
-    .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetId)))
-    .returning({ userId: schema.roomMembers.userId });
-  if (!removed) {
+  // Leaving (not being removed) posts a "left the room" system message.
+  const result = await db.transaction(async (tx) => {
+    const [removed] = await tx
+      .delete(schema.roomMembers)
+      .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetId)))
+      .returning({ userId: schema.roomMembers.userId });
+    if (!removed) return null;
+    if (!self) return { message: null };
+    const [row] = await tx
+      .insert(schema.messages)
+      .values({ roomId, userId: targetId, kind: "member_left", text: "" })
+      .returning();
+    const message: Message = {
+      id: row!.id,
+      roomId,
+      kind: "member_left",
+      text: "",
+      createdAt: row!.createdAt.toISOString(),
+      editedAt: null,
+      deletedAt: null,
+      author: req.user!,
+    };
+    return { message };
+  });
+  if (!result) {
     res.status(404).json({ error: "Not a member" });
     return;
   }
 
   const members = await broadcastMembers(roomId, req);
   res.json({ members });
+  if (result.message) broadcast(roomChannel(roomId), MESSAGE_CREATED_EVENT, result.message, req);
   const event: RoomRemovedEvent = { roomId };
   broadcast(userChannel(targetId), ROOM_REMOVED_EVENT, event);
 });

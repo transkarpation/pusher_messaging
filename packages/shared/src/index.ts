@@ -49,9 +49,10 @@ export interface User {
 
 /**
  * "text": a regular message written by `author`.
- * "member_joined": a system line that `author` joined the room (accepted an invite); `text` is "".
+ * System lines, where `author` is who it's about and `text` is "":
+ * "member_joined": accepted an invite; "member_left": left the room.
  */
-export type MessageKind = "text" | "member_joined";
+export type MessageKind = "text" | "member_joined" | "member_left";
 
 export interface Message {
   id: number;
