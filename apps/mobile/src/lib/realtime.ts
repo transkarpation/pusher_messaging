@@ -1,37 +1,38 @@
-import Pusher from "pusher-js/react-native";
-import { api, authHeaders, setSocketId } from "./api";
+import { AppState } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
+import { RealtimeClient } from "@pm/realtime-client";
+import { REALTIME_PATH } from "@pm/shared";
+import { authHeaders, setSocketId } from "./api";
 import { API_URL } from "./config";
 
-let client: Promise<Pusher> | null = null;
+let client: RealtimeClient | null = null;
+let stopWatching: (() => void) | null = null;
 
-/** One Pusher connection, with the key and cluster served by the API; private channels are authorized with the Bearer token. */
-export function getPusher(): Promise<Pusher> {
-  client ??= api
-    .getRealtimeConfig()
-    .then(({ pusher }) => {
-      const p = new Pusher(pusher.key, {
-        cluster: pusher.cluster,
-        channelAuthorization: {
-          endpoint: `${API_URL}/api/realtime/pusher/auth`,
-          transport: "ajax",
-          headersProvider: authHeaders,
-        },
-      });
-      p.connection.bind("state_change", ({ current }: { current: string }) => {
-        setSocketId(current === "connected" ? p.connection.socket_id : undefined);
-      });
-      return p;
-    })
-    .catch((err) => {
-      client = null; // allow a retry
-      throw err;
-    });
-  return client;
+/**
+ * The single realtime connection, opened on first use. It authenticates with the Bearer
+ * token in the handshake headers, which React Native's WebSocket supports.
+ */
+export function getRealtime(): RealtimeClient {
+  if (client) return client;
+  const rt = new RealtimeClient({ url: API_URL.replace(/^http/, "ws") + REALTIME_PATH, headers: authHeaders });
+  rt.onStateChange((state) => setSocketId(state === "connected" ? rt.socketId : undefined));
+
+  // Don't sit out the retry delay when the app comes back to the foreground or the network returns.
+  const appState = AppState.addEventListener("change", (state) => state === "active" && rt.reconnectNow());
+  const netInfo = NetInfo.addEventListener((state) => state.isConnected && rt.reconnectNow());
+  stopWatching = () => {
+    appState.remove();
+    netInfo();
+  };
+
+  client = rt;
+  return rt;
 }
 
-export async function disconnectPusher() {
-  const current = client;
+export function disconnectRealtime() {
+  stopWatching?.();
+  stopWatching = null;
+  client?.disconnect();
   client = null;
   setSocketId(undefined);
-  if (current) (await current.catch(() => null))?.disconnect();
 }

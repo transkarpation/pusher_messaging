@@ -5,7 +5,6 @@ import {
   type CreateMessageInput,
   type Message,
   type MessagesResponse,
-  type RealtimeConfig,
   type Room,
   type TokenAuthResponse,
   type User,
@@ -28,7 +27,7 @@ let socketId: string | undefined;
 export const setApiToken = (value: string | null) => {
   token = value;
 };
-/** The Pusher socket id, so the server doesn't echo our own events back to us. */
+/** The realtime socket id, so the server doesn't echo our own events back to us. */
 export const setSocketId = (value: string | undefined) => {
   socketId = value;
 };
@@ -76,5 +75,4 @@ export const api = {
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
 
-  getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
 };

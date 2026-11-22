@@ -23,7 +23,7 @@ import {
 } from "@pm/shared";
 import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
-import { getPusher } from "../../lib/realtime";
+import { getRealtime } from "../../lib/realtime";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -67,21 +67,14 @@ export default function RoomScreen() {
   useEffect(() => {
     const channelName = roomChannel(roomId);
     const apply = (m: Message) => setMessages((prev) => merge(prev, [m]));
-    let pusher: Awaited<ReturnType<typeof getPusher>> | null = null;
-    let stopped = false;
-    getPusher()
-      .then((p) => {
-        if (stopped) return;
-        pusher = p;
-        const channel = p.subscribe(channelName);
-        channel.bind(MESSAGE_CREATED_EVENT, apply);
-        channel.bind(MESSAGE_UPDATED_EVENT, apply);
-        channel.bind(MESSAGE_DELETED_EVENT, apply);
-      })
-      .catch((e) => console.warn("Realtime is unavailable:", e));
+    const rt = getRealtime();
+    const channel = rt.subscribe(channelName);
+    channel.bind(MESSAGE_CREATED_EVENT, apply);
+    channel.bind(MESSAGE_UPDATED_EVENT, apply);
+    channel.bind(MESSAGE_DELETED_EVENT, apply);
     return () => {
-      stopped = true;
-      pusher?.unsubscribe(channelName);
+      channel.unbindAll();
+      rt.unsubscribe(channelName);
     };
   }, [roomId]);
 

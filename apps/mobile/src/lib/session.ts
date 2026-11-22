@@ -2,7 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import type { User } from "@pm/shared";
 import { ApiRequestError, api, setApiToken } from "./api";
-import { disconnectPusher } from "./realtime";
+import { disconnectRealtime } from "./realtime";
 
 const TOKEN_KEY = "session-token";
 
@@ -46,7 +46,7 @@ export const useSession = create<SessionState>((set) => ({
   signOut: async () => {
     await api.logout().catch(() => undefined); // signing out locally matters more
     await SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
-    await disconnectPusher();
+    disconnectRealtime();
     setApiToken(null);
     set({ status: "signedOut", user: null });
   },
