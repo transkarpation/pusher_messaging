@@ -60,7 +60,20 @@ Real-time chat with rooms, invitations, messages (editable and deletable), typin
    - Client: http://localhost:5173
    - API: http://localhost:3000. Vite proxies `/api` to it.
 
-   To try it out, register two users in different browsers (or a normal and a private window). Then create a room and add the second user.
+   To try it out, register two users in different browsers (or a normal and a private window). Then create a room and add the second user. Or load the demo data (below).
+
+## Demo data
+
+```sh
+pnpm db:seed
+```
+
+Creates 8 demo users (`olena`, `andriy`, `iryna`, `maksym`, `sofia`, `taras`, `dmytro`, `kateryna`, all with the password `password123`), 4 rooms with a few days of conversation, and prints the logins. The data also covers unread messages, a pending invite, a block, edited and deleted messages, join/leave lines and a room with more than one page of messages.
+
+- `pnpm db:seed --reset` deletes the demo data and creates it again, with timestamps relative to now.
+- `pnpm db:seed --clean` only deletes it.
+
+Demo users are recognized by username. Deleting them also deletes the rooms they created, and their messages in other rooms.
 
 ## Scripts
 
@@ -72,6 +85,7 @@ Real-time chat with rooms, invitations, messages (editable and deletable), typin
 | `pnpm db:up` | starts PostgreSQL in Docker |
 | `pnpm db:generate` | generates a migration after changing `apps/server/src/db/schema.ts` |
 | `pnpm db:migrate` | applies migrations |
+| `pnpm db:seed` | creates demo users and conversations (see [Demo data](#demo-data)) |
 | `pnpm db:studio` | opens Drizzle Studio to browse the database |
 
 ## Real-time channels
