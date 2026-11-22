@@ -1,20 +1,20 @@
 # pusher-messaging
 
-Real-time chat with rooms, invitations, messages (editable and deletable) with file attachments, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
+Real-time chat with rooms, invitations, messages (editable and deletable) with file attachments, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint and the `@pm/realtime-client` library.
 
 ## Stack
 
-- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, Pusher
-- **Client** (`apps/client`): React 19, Zustand, Vite, pusher-js
-- **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, pusher-js. See [Mobile app](#mobile-app)
-- **Shared** (`packages/shared`): zod schemas, types, channel and event names
+- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `ws` for the realtime WebSocket endpoint
+- **Client** (`apps/client`): React 19, Zustand, Vite
+- **Mobile** (`apps/mobile`): Expo (React Native), Expo Router. See [Mobile app](#mobile-app)
+- **Shared** (`packages/shared`): zod schemas, types, channel and event names, the realtime protocol
+- **Realtime client** (`packages/realtime-client`): the WebSocket client used by the web and mobile apps
 
 ## Requirements
 
 - Node.js 22+
 - pnpm. The version is pinned in `packageManager` in `package.json`; `corepack enable` is the easiest way to get it.
 - Docker, for PostgreSQL
-- A Pusher Channels app (the free plan is enough)
 
 ## Getting started
 
@@ -30,14 +30,8 @@ Real-time chat with rooms, invitations, messages (editable and deletable) with f
    cp apps/server/.env.example apps/server/.env
    ```
 
-   Create a Channels app in the [Pusher Dashboard](https://dashboard.pusher.com/), open **App Keys** and fill in `apps/server/.env`:
-
    | Variable | Description |
    |---|---|
-   | `PUSHER_APP_ID` | `app_id` |
-   | `PUSHER_KEY` | `key` |
-   | `PUSHER_SECRET` | `secret` |
-   | `PUSHER_CLUSTER` | the app's cluster, e.g. `eu` |
    | `DATABASE_URL` | points to the database from `docker-compose.yml` by default |
    | `PORT` | API port, `3000` by default |
 
@@ -94,7 +88,7 @@ pnpm start                # then press a for Android, i for iOS, or scan the QR 
 
 How it differs from the web client:
 
-- **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. Pusher private channels are authorized with the same header.
+- **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. The realtime WebSocket sends the same header in its handshake.
 - **Links.** `avatarUrl` and attachment `url` are paths on the API server. The app turns them into full URLs with `resolveApiUrl` from `@pm/shared` and loads images with the Bearer header, because attachments are served only to room members.
 
 ## Scripts
@@ -124,7 +118,7 @@ How it differs from the web client:
 | `auth` | sessions, sign up / sign in, `requireAuth` |
 | `blocks` | the block list |
 | `chat` | rooms, members, invitations, messages, receipts, typing |
-| `realtime` | Pusher: publishing events (`RealtimePublisher`) and channel authorization |
+| `realtime` | the WebSocket gateway (`WsGateway`): publishing events (`RealtimePublisher`), channel authorization, presence |
 | `seeds` | demo accounts for `/seeds` |
 | `docs` | OpenAPI document and Swagger UI |
 
@@ -138,7 +132,11 @@ Modules use each other only through the facade exported from their `index.ts`, n
 | `private-user-{id}` | invitations received or gone, the user joined or was removed from a room |
 | `private-room-{id}` | new, edited and deleted messages, typing, receipts, member and invite changes |
 
-Private and presence channels are authorized via `POST /api/realtime/pusher/auth`. Only members of a room can subscribe to its channel.
+Clients open a WebSocket to `/api/realtime/ws` on the API server. It is authenticated like HTTP requests: the session cookie for browsers (accepted only when `Origin` is the server's own host), `Authorization: Bearer` for mobile. Each `subscribe` is checked by `RealtimeService`: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. The frames are defined in `packages/shared` (`ClientFrame`, `ServerFrame`).
+
+The server sends each connection a socket id. Clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
+
+Subscriptions live in the server's memory, so this serves one server process. Running several instances would need a shared bus (e.g. Redis pub/sub) between them.
 
 The client loads its initial state over REST: `GET /api/rooms` for the room list, and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
 
@@ -164,11 +162,11 @@ Both endpoints return the updated `Message` and broadcast it on the room channel
 
 ## Recovering missed events after a reconnect
 
-Pusher does not store events. Anything published while a client is disconnected (network loss, a laptop waking from sleep) never reaches it. pusher-js reconnects and resubscribes to every channel on its own, but the events from the gap are gone. Without a fix, the user would see holes in the message history, stale unread counts, and rooms they were added to or removed from that never show up or never go away.
+The realtime server does not store events. Anything published while a client is disconnected (network loss, a laptop waking from sleep) never reaches it. `@pm/realtime-client` reconnects and resubscribes to every channel on its own, but the events from the gap are gone. Without a fix, the user would see holes in the message history, stale unread counts, and rooms they were added to or removed from that never show up or never go away.
 
 The client fixes this by refetching the affected state once realtime is back.
 
-**When it runs.** On reconnect, pusher-js resubscribes every channel and fires `pusher:subscription_succeeded` on each one again. The client ignores the first subscription and treats any later one as a reconnect (`onResubscribed` in `apps/client/src/hooks/useRealtime.ts`). Because the refetch starts only after the channel is live again, every event published after the refetch arrives over the channel. Duplicates between the two sources are harmless, since merges are keyed by message id.
+**When it runs.** On reconnect, the client resubscribes every channel and fires `realtime:subscribed` on each one again. The client ignores the first subscription and treats any later one as a reconnect (`onResubscribed` in `apps/client/src/hooks/useRealtime.ts`). Because the refetch starts only after the channel is live again, every event published after the refetch arrives over the channel. Duplicates between the two sources are harmless, since merges are keyed by message id.
 
 **User channel resubscribed → refresh the room list.** `useRooms.fetch()` reloads `GET /api/rooms`. That brings back rooms added or removed while offline, current members, last messages, unread counts and the user's own receipts. The result is merged with the local state (`keepNewer` in `apps/client/src/store/rooms.ts`). If a newer message arrived over realtime while the request was in flight, it is kept, and read/delivered watermarks only move forward. If the refresh fails, the current list stays instead of switching to an error screen.
 
@@ -190,4 +188,4 @@ Paging by `after` only finds new messages, not edits or deletions of ones the cl
 - **Repeated reconnects.** Catch-ups for the same room don't overlap.
 - **Left room.** If the user leaves the room during a catch-up, the result is dropped.
 
-**Limitation.** Recovery depends on pusher-js noticing the dropped connection. Very short drops it doesn't detect cause no resubscription, so no refetch.
+**Limitation.** Recovery depends on the client noticing the dropped connection. It pings the server after 25 s of silence and reconnects if nothing comes back within 10 s, so a drop can go unnoticed for up to ~35 s. Very short drops it doesn't detect cause no resubscription, so no refetch.
