@@ -19,6 +19,7 @@ import { useBlocks } from "../store/blocks";
 import { useRooms } from "../store/rooms";
 import { Avatar } from "./Avatar";
 import { DeleteMessageModal } from "./DeleteMessageModal";
+import { EmojiPicker } from "./EmojiPicker";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
 import { Spinner } from "./Spinner";
@@ -146,6 +147,22 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const onTextChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
     if (!editing) typing.onInput(e.target.value);
+  };
+
+  /** Puts the emoji at the caret (replacing any selection) and moves the caret after it. */
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    const value = text.slice(0, start) + emoji + text.slice(end);
+    setText(value);
+    if (!editing) typing.onInput(value);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      const caret = start + emoji.length;
+      if (!isTouch()) el.focus();
+      el.setSelectionRange(caret, caret);
+    });
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -380,6 +397,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
             onKeyDown={onKeyDown}
             onBlur={editing ? undefined : typing.stop}
           />
+          <EmojiPicker onPick={insertEmoji} />
           <button type="submit" disabled={saving}>
             {editing ? "Save" : "Send"}
           </button>
