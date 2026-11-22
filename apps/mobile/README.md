@@ -45,6 +45,8 @@ The APK is written to `android/app/build/outputs/apk/release/app-release.apk`. I
 
 To build and launch it on a connected device or emulator in one step, run `npx expo run:android --variant release` instead.
 
+To build it and install it on a phone connected over USB (with USB debugging on), run `pnpm --filter mobile android:install` ([scripts/install-android.sh](scripts/install-android.sh)). It checks that the phone is connected before building, runs `expo prebuild` if `android/` is missing, then installs and launches the app.
+
 Notes:
 
 - `android/` is generated. Don't edit it by hand: change `app.json` or a config plugin, then run `npx expo prebuild --clean` to regenerate it.
