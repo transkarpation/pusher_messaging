@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
+import type { RealtimeConnection } from "@pm/realtime-client";
 import {
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
@@ -67,14 +68,22 @@ export default function RoomScreen() {
   useEffect(() => {
     const channelName = roomChannel(roomId);
     const apply = (m: Message) => setMessages((prev) => merge(prev, [m]));
-    const rt = getRealtime();
-    const channel = rt.subscribe(channelName);
-    channel.bind(MESSAGE_CREATED_EVENT, apply);
-    channel.bind(MESSAGE_UPDATED_EVENT, apply);
-    channel.bind(MESSAGE_DELETED_EVENT, apply);
+    let rt: RealtimeConnection | null = null;
+    let stopped = false;
+    getRealtime()
+      .then((conn) => {
+        if (stopped) return;
+        rt = conn;
+        const channel = conn.subscribe(channelName);
+        channel.bind(MESSAGE_CREATED_EVENT, apply);
+        channel.bind(MESSAGE_UPDATED_EVENT, apply);
+        channel.bind(MESSAGE_DELETED_EVENT, apply);
+      })
+      .catch((e) => console.warn("Realtime is unavailable:", e));
     return () => {
-      channel.unbindAll();
-      rt.unsubscribe(channelName);
+      stopped = true;
+      rt?.channel(channelName)?.unbindAll();
+      rt?.unsubscribe(channelName);
     };
   }, [roomId]);
 

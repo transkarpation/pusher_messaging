@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { MEMBER_ADDED, MEMBER_REMOVED, SUBSCRIBED, type Channel, type RealtimeClient } from "@pm/realtime-client";
+import { MEMBER_ADDED, MEMBER_REMOVED, SUBSCRIBED, type Channel, type RealtimeConnection } from "@pm/realtime-client";
 import {
   BLOCKS_UPDATED_EVENT,
   MESSAGE_CREATED_EVENT,
@@ -70,7 +70,9 @@ function onResubscribed(channel: Channel, resync: () => void) {
  */
 export function useRealtime(me: User) {
   useEffect(() => {
-    const rt: RealtimeClient = getRealtime();
+    let cancelled = false;
+    let rt: RealtimeConnection | null = null;
+    let unsubscribeStore: (() => void) | null = null;
     const roomChannels = new Map<number, Channel>();
 
     const rooms = useRooms.getState();
@@ -102,6 +104,7 @@ export function useRealtime(me: User) {
 
     /** Subscribes to rooms that appeared in the store, unsubscribes from those that left. */
     const syncRoomChannels = () => {
+      if (!rt) return;
       const ids = new Set(Object.keys(useRooms.getState().rooms).map(Number));
       for (const id of ids) {
         if (roomChannels.has(id)) continue;
@@ -119,44 +122,54 @@ export function useRealtime(me: User) {
       }
     };
 
-    bindAll(rt.subscribe(ONLINE_CHANNEL), {
-      [SUBSCRIBED]: (members: PresenceMember[] | undefined) => online.setMembers(members ?? []),
-      [MEMBER_ADDED]: (m: PresenceMember) => online.add(m),
-      [MEMBER_REMOVED]: (m: PresenceMember) => online.remove(m),
-      [USER_UPDATED_EVENT]: (u: User) => {
-        online.update(u);
-        rooms.updateUser(u);
-        messages.updateAuthor(u);
-        invitations.updateUser(u);
-        useAuth.getState().applyUpdate(u);
-      },
-    } satisfies Handlers);
+    getRealtime()
+      .then((conn) => {
+        if (cancelled) return;
+        rt = conn;
 
-    const mine = rt.subscribe(userChannel(me.id));
-    bindAll(mine, {
-      [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
-      [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
-      [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
-      [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
-      [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
-    } satisfies Handlers);
-    // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
-    onResubscribed(mine, () => {
-      void rooms.fetch();
-      void invitations.fetch();
-      void useBlocks.getState().fetch();
-    });
+        bindAll(conn.subscribe(ONLINE_CHANNEL), {
+          [SUBSCRIBED]: (members: PresenceMember[] | undefined) => online.setMembers(members ?? []),
+          [MEMBER_ADDED]: (m: PresenceMember) => online.add(m),
+          [MEMBER_REMOVED]: (m: PresenceMember) => online.remove(m),
+          [USER_UPDATED_EVENT]: (u: User) => {
+            online.update(u);
+            rooms.updateUser(u);
+            messages.updateAuthor(u);
+            invitations.updateUser(u);
+            useAuth.getState().applyUpdate(u);
+          },
+        } satisfies Handlers);
 
-    syncRoomChannels();
-    const unsubscribeStore = useRooms.subscribe((s, prev) => {
-      if (s.rooms !== prev.rooms) syncRoomChannels();
-    });
+        const mine = conn.subscribe(userChannel(me.id));
+        bindAll(mine, {
+          [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
+          [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
+          [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
+          [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
+          [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
+        } satisfies Handlers);
+        // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
+        onResubscribed(mine, () => {
+          void rooms.fetch();
+          void invitations.fetch();
+          void useBlocks.getState().fetch();
+        });
+
+        syncRoomChannels();
+        unsubscribeStore = useRooms.subscribe((s, prev) => {
+          if (s.rooms !== prev.rooms) syncRoomChannels();
+        });
+      })
+      .catch((err) => console.error("Realtime unavailable:", err));
 
     return () => {
-      unsubscribeStore();
-      for (const name of [ONLINE_CHANNEL, userChannel(me.id), ...[...roomChannels.keys()].map(roomChannel)]) {
-        rt.channel(name)?.unbindAll();
-        rt.unsubscribe(name);
+      cancelled = true;
+      unsubscribeStore?.();
+      if (rt) {
+        for (const name of [ONLINE_CHANNEL, userChannel(me.id), ...[...roomChannels.keys()].map(roomChannel)]) {
+          rt.channel(name)?.unbindAll();
+          rt.unsubscribe(name);
+        }
       }
       roomChannels.clear();
       online.reset();

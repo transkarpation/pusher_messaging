@@ -13,7 +13,15 @@ import {
   MessagesService,
   RoomsService,
 } from "./modules/chat/index.js";
-import { RealtimeService, WsGateway } from "./modules/realtime/index.js";
+import type { RealtimeConfig } from "@pm/shared";
+import {
+  PusherGateway,
+  RealtimeService,
+  WsGateway,
+  pusherConfigFromEnv,
+  realtimeDriverFromEnv,
+  type RealtimePublisher,
+} from "./modules/realtime/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
 import { DrizzleTransactor } from "./shared/transaction.js";
@@ -24,19 +32,25 @@ import { DrizzleTransactor } from "./shared/transaction.js";
  * nothing else constructs them.
  */
 export function createContainer() {
-  const gateway = new WsGateway();
+  // Realtime transport, chosen by REALTIME_DRIVER: the own WebSocket gateway or Pusher.
+  const pusher = realtimeDriverFromEnv() === "pusher" ? new PusherGateway(pusherConfigFromEnv()) : null;
+  const gateway = pusher ? null : new WsGateway();
+  const publisher: RealtimePublisher = pusher ?? gateway!;
+  const realtimeConfig: RealtimeConfig = pusher
+    ? { driver: "pusher", key: pusher.config.key, cluster: pusher.config.cluster }
+    : { driver: "ws" };
   const tx = new DrizzleTransactor(db);
 
-  const users = new UsersService(new DrizzleUsersRepository(db), gateway);
+  const users = new UsersService(new DrizzleUsersRepository(db), publisher);
   const auth = new AuthService(new DrizzleSessionsRepository(db), users);
-  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, gateway);
+  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, publisher);
 
   const roomsRepo = new DrizzleRoomsRepository(db);
   const messagesRepo = new DrizzleMessagesRepository(db);
   const invitesRepo = new DrizzleInvitesRepository(db);
   const attachmentsRepo = new DrizzleAttachmentsRepository(db);
   const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, users, blocks);
-  const events = new ChatEvents(gateway, views);
+  const events = new ChatEvents(publisher, views);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, views, events);
@@ -54,7 +68,10 @@ export function createContainer() {
     messages,
     attachments,
     realtime,
+    /** The WebSocket gateway to attach to the HTTP server; null with the Pusher driver. */
     gateway,
+    pusher,
+    realtimeConfig,
     seeds,
   };
 }

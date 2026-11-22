@@ -13,6 +13,7 @@ import {
   type Invitation,
   type InviteInput,
   type Message,
+  type RealtimeConfig,
   type MessagesResponse,
   type Receipt,
   type Room,
@@ -122,6 +123,8 @@ export const api = {
   getInvitations: () => request<Invitation[]>("/invites"),
   acceptInvitation: (roomId: number) => request<Room>(`/invites/${roomId}/accept`, "POST"),
   declineInvitation: (roomId: number) => request<void>(`/invites/${roomId}/decline`, "POST"),
+
+  getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
 
 
   /** Public: demo accounts from `pnpm db:seed` with their passwords. */

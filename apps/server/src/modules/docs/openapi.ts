@@ -68,6 +68,7 @@ const tags = {
   messages: "Messages",
   invites: "Invitations",
   blocks: "Blocking",
+  realtime: "Realtime",
   dev: "Development",
 };
 
@@ -170,6 +171,12 @@ const schemas: Record<string, Schema> = {
     },
   }),
   BlocksResponse: object({ blocked: { ...arrayOf(ref("User")), description: "Most recently blocked first" } }),
+  RealtimeConfig: {
+    oneOf: [
+      object({ driver: { type: "string", enum: ["ws"] } }),
+      object({ driver: { type: "string", enum: ["pusher"] }, key: { type: "string" }, cluster: { type: "string" } }),
+    ],
+  },
   SeedAccount: object({
     id: { type: "integer" },
     username: { type: "string" },
@@ -574,6 +581,46 @@ const paths: Record<string, Record<string, Schema>> = {
     },
   },
 
+  // ---- realtime ------------------------------------------------------------
+  "/realtime/config": {
+    get: {
+      tags: [tags.realtime],
+      summary: "Which realtime transport to use",
+      description:
+        "`ws`: the server's own WebSocket at `/api/realtime/ws`. `pusher`: Pusher Channels with this key and cluster. " +
+        "Set on the server with REALTIME_DRIVER.",
+      security: [],
+      responses: { 200: json(ref("RealtimeConfig"), "The transport, plus the public Pusher key and cluster for `pusher`") },
+    },
+  },
+  "/realtime/pusher/auth": {
+    post: {
+      tags: [tags.realtime],
+      summary: "Authorize a Pusher channel subscription",
+      description:
+        "Only with the `pusher` driver. Called by pusher-js. `presence-online`: anyone signed in; " +
+        "`private-user-{id}`: only that user; `private-room-{id}`: only room members.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/x-www-form-urlencoded": {
+            schema: object({ socket_id: { type: "string" }, channel_name: { type: "string" } }),
+          },
+        },
+      },
+      responses: {
+        200: json(
+          object({ auth: { type: "string" }, channel_data: { type: "string" } }, ["auth"]),
+          "Pusher auth signature (`channel_data` for the presence channel)",
+        ),
+        400: error("socket_id and channel_name are required"),
+        ...unauthorized,
+        403: error("Forbidden channel"),
+        404: error("Not served with the `ws` driver"),
+      },
+    },
+  },
+
   // ---- development ---------------------------------------------------------
   "/seeds": {
     get: {
@@ -600,7 +647,8 @@ export const openApiDocument = {
       "here first and the browser sends the cookie with every later request. Mobile and other non-browser clients " +
       "sign in with `session: \"token\"` and send `Authorization: Bearer <token>` instead. Links in responses " +
       "(`avatarUrl`, attachment `url`) are paths on this server.\n\n" +
-      "Real-time events come over a WebSocket at `/api/realtime/ws`, authenticated the same way (cookie or Bearer). " +
+      "Real-time events go either through the server's own WebSocket or through Pusher, as **GET /realtime/config** says. " +
+      "The WebSocket is at `/api/realtime/ws`, authenticated the same way (cookie or Bearer). " +
       "The server sends `connected` with a socket id; subscribe with `{\"type\":\"subscribe\",\"channel\":…}`. " +
       "Channels: `presence-online` (anyone signed in), `private-user-{id}` (only that user), `private-room-{id}` " +
       "(room members). The protocol is described in `packages/shared` (`ClientFrame`, `ServerFrame`). " +

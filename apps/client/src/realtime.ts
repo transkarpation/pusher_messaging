@@ -1,23 +1,50 @@
-import { RealtimeClient } from "@pm/realtime-client";
-import { REALTIME_PATH } from "@pm/shared";
+import { RealtimeClient, createPusherConnection, type RealtimeConnection } from "@pm/realtime-client";
+import { PUSHER_AUTH_PATH, REALTIME_PATH, type RealtimeConfig } from "@pm/shared";
+import { api } from "./api";
 
-let client: RealtimeClient | null = null;
+let pending: Promise<RealtimeConnection> | null = null;
+let current: RealtimeConnection | null = null;
+
+/** Opens a connection with the transport the server uses. Both authenticate with the session cookie. */
+async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
+  if (config.driver === "pusher") {
+    const { default: Pusher } = await import("pusher-js"); // loaded only for the Pusher driver
+    return createPusherConnection({ Pusher, key: config.key, cluster: config.cluster, authEndpoint: PUSHER_AUTH_PATH });
+  }
+  // Same origin as the page (Vite proxies it in development).
+  return new RealtimeClient({ url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${REALTIME_PATH}` });
+}
 
 /**
- * The single realtime connection, opened on first use. Same origin as the page (Vite
- * proxies it in development), so the browser authenticates it with the session cookie.
+ * The single realtime connection, opened on first use with the transport from
+ * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket or Pusher).
  */
-export function getRealtime(): RealtimeClient {
-  client ??= new RealtimeClient({
-    url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${REALTIME_PATH}`,
-  });
-  return client;
+export function getRealtime(): Promise<RealtimeConnection> {
+  if (pending) return pending;
+  const attempt: Promise<RealtimeConnection> = api
+    .getRealtimeConfig()
+    .then(open)
+    .then((conn) => {
+      if (pending !== attempt) {
+        conn.disconnect(); // disconnectRealtime() ran while this was opening
+        throw new Error("Realtime was disconnected");
+      }
+      current = conn;
+      return conn;
+    })
+    .catch((err) => {
+      if (pending === attempt) pending = null; // allow a retry
+      throw err;
+    });
+  pending = attempt;
+  return attempt;
 }
 
 /** The current connection's socket id, attached to API calls so the server doesn't echo our own events. */
-export const getSocketId = () => client?.socketId;
+export const getSocketId = () => current?.socketId;
 
 export function disconnectRealtime() {
-  client?.disconnect();
-  client = null;
+  pending = null;
+  current?.disconnect();
+  current = null;
 }

@@ -5,6 +5,7 @@ import {
   type CreateMessageInput,
   type Message,
   type MessagesResponse,
+  type RealtimeConfig,
   type Room,
   type TokenAuthResponse,
   type User,
@@ -74,5 +75,7 @@ export const api = {
     request<MessagesResponse>(`${room(roomId)}/messages${before !== undefined ? `?before=${before}` : ""}`),
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
+
+  getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
 
 };

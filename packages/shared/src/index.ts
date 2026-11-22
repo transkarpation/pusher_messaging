@@ -378,6 +378,15 @@ export const resolveApiUrl = (serverOrigin: string, path: string) => new URL(pat
 /** Path of the WebSocket endpoint on the API server. */
 export const REALTIME_PATH = "/api/realtime/ws";
 
+/**
+ * Which realtime transport the server uses (REALTIME_DRIVER in its .env), served by
+ * GET /api/realtime/config: its own WebSocket endpoint, or Pusher Channels.
+ */
+export type RealtimeConfig = { driver: "ws" } | { driver: "pusher"; key: string; cluster: string };
+
+/** Endpoint pusher-js posts to for private and presence channel signatures (Pusher driver only). */
+export const PUSHER_AUTH_PATH = "/api/realtime/pusher/auth";
+
 /** Close code: no valid session (or a cookie session from another origin). Don't reconnect. */
 export const CLOSE_UNAUTHORIZED = 4001;
 /** Close code: the client broke the protocol (bad JSON, unknown frame, too many channels). */

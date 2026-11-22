@@ -1,38 +1,68 @@
 import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { RealtimeClient } from "@pm/realtime-client";
-import { REALTIME_PATH } from "@pm/shared";
-import { authHeaders, setSocketId } from "./api";
+import { RealtimeClient, createPusherConnection, type RealtimeConnection } from "@pm/realtime-client";
+import { PUSHER_AUTH_PATH, REALTIME_PATH, type RealtimeConfig } from "@pm/shared";
+import { api, authHeaders, setSocketId } from "./api";
 import { API_URL } from "./config";
 
-let client: RealtimeClient | null = null;
-let stopWatching: (() => void) | null = null;
+let pending: Promise<RealtimeConnection> | null = null;
+let current: { conn: RealtimeConnection; stop: () => void } | null = null;
+
+/** Opens a connection with the transport the server uses, authenticated with the Bearer token. */
+async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
+  if (config.driver === "pusher") {
+    const { default: Pusher } = await import("pusher-js/react-native"); // loaded only for the Pusher driver
+    return createPusherConnection({
+      Pusher,
+      key: config.key,
+      cluster: config.cluster,
+      authEndpoint: API_URL + PUSHER_AUTH_PATH,
+      headers: authHeaders,
+    });
+  }
+  // React Native's WebSocket can send headers in the handshake.
+  return new RealtimeClient({ url: API_URL.replace(/^http/, "ws") + REALTIME_PATH, headers: authHeaders });
+}
 
 /**
- * The single realtime connection, opened on first use. It authenticates with the Bearer
- * token in the handshake headers, which React Native's WebSocket supports.
+ * The single realtime connection, opened on first use with the transport from
+ * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket or Pusher).
  */
-export function getRealtime(): RealtimeClient {
-  if (client) return client;
-  const rt = new RealtimeClient({ url: API_URL.replace(/^http/, "ws") + REALTIME_PATH, headers: authHeaders });
-  rt.onStateChange((state) => setSocketId(state === "connected" ? rt.socketId : undefined));
-
-  // Don't sit out the retry delay when the app comes back to the foreground or the network returns.
-  const appState = AppState.addEventListener("change", (state) => state === "active" && rt.reconnectNow());
-  const netInfo = NetInfo.addEventListener((state) => state.isConnected && rt.reconnectNow());
-  stopWatching = () => {
-    appState.remove();
-    netInfo();
-  };
-
-  client = rt;
-  return rt;
+export function getRealtime(): Promise<RealtimeConnection> {
+  if (pending) return pending;
+  const attempt: Promise<RealtimeConnection> = api
+    .getRealtimeConfig()
+    .then(open)
+    .then((conn) => {
+      if (pending !== attempt) {
+        conn.disconnect(); // disconnectRealtime() ran while this was opening
+        throw new Error("Realtime was disconnected");
+      }
+      conn.onStateChange((state) => setSocketId(state === "connected" ? conn.socketId : undefined));
+      // Don't sit out the retry delay when the app comes back to the foreground or the network returns.
+      const appState = AppState.addEventListener("change", (state) => state === "active" && conn.reconnectNow());
+      const netInfo = NetInfo.addEventListener((state) => state.isConnected && conn.reconnectNow());
+      current = {
+        conn,
+        stop: () => {
+          appState.remove();
+          netInfo();
+        },
+      };
+      return conn;
+    })
+    .catch((err) => {
+      if (pending === attempt) pending = null; // allow a retry
+      throw err;
+    });
+  pending = attempt;
+  return attempt;
 }
 
 export function disconnectRealtime() {
-  stopWatching?.();
-  stopWatching = null;
-  client?.disconnect();
-  client = null;
+  pending = null;
+  current?.stop();
+  current?.conn.disconnect();
+  current = null;
   setSocketId(undefined);
 }
