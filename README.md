@@ -70,6 +70,8 @@ pnpm db:seed
 
 Creates 8 demo users (`olena`, `andriy`, `iryna`, `maksym`, `sofia`, `taras`, `dmytro`, `kateryna`, all with the password `password123`), 4 rooms with a few days of conversation, and prints the logins. The data also covers unread messages, a pending invite, a block, edited and deleted messages, join/leave lines and a room with more than one page of messages.
 
+The same accounts, with their passwords, rooms and a "Log in as" button, are on the **http://localhost:5173/seeds** page. It needs no login, and the sign-in form links to it. The page lists only demo accounts that still have the demo password. `GET /api/seeds` behind it isn't served when `NODE_ENV=production`.
+
 - `pnpm db:seed --reset` deletes the demo data and creates it again, with timestamps relative to now.
 - `pnpm db:seed --clean` only deletes it.
 

@@ -5,27 +5,15 @@
  *   pnpm db:seed --reset   delete the demo data and create it again (fresh timestamps)
  *   pnpm db:seed --clean   only delete the demo data
  *
- * Demo users are recognized by username (see USERS); deleting them also deletes the rooms they created.
+ * Demo users are recognized by username (see src/lib/demo.ts, also shown on the /seeds page);
+ * deleting them also deletes the rooms they created.
  */
 import { deflateSync } from "node:zlib";
 import { inArray } from "drizzle-orm";
 import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
+import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, type DemoUsername as Username } from "../src/lib/demo.js";
 import { hashPassword } from "../src/lib/password.js";
-
-const PASSWORD = "password123";
-
-const USERS = [
-  { username: "olena", name: "Олена Коваль", avatar: [229, 72, 77] as const },
-  { username: "andriy", name: "Андрій Шевчук" },
-  { username: "iryna", name: "Ірина Бондар", avatar: [18, 165, 148] as const },
-  { username: "maksym", name: "Максим Ткаченко" },
-  { username: "sofia", name: "Софія Мельник" },
-  { username: "taras", name: "Тарас Кравець" },
-  { username: "dmytro", name: "Дмитро Олійник" },
-  { username: "kateryna", name: null }, // never set a name: shown as @kateryna
-] as const;
-type Username = (typeof USERS)[number]["username"];
 
 /** A scripted line: who, what, and how many minutes after the previous line. */
 type Line =
@@ -230,7 +218,7 @@ function dateAt(daysAgo: number, at: string): Date {
 }
 const addMinutes = (d: Date, min: number) => new Date(d.getTime() + min * 60_000);
 
-const usernames = USERS.map((u) => u.username);
+const usernames = DEMO_USERNAMES;
 
 /** Who is in the room after the script ran: initial members, plus "joined" lines, minus "left" ones. */
 function finalMembers(spec: { members: Username[]; script?: RoomSpec["script"] }): Username[] {
@@ -438,11 +426,10 @@ async function main() {
   console.log(
     [
       "Worth a look:",
-      "  - olena: unread messages in several rooms, a two-person room with andriy, has an avatar",
-      "  - maksym: blocked taras, so taras's messages are hidden for him in «Загальний»",
-      "  - iryna: a pending invite to «Вихідні 🏔»",
-      "  - kateryna: no name set, joined «Вихідні 🏔» by invite",
+      ...USERS.map((u) => `  - ${u.username}: ${u.note}`),
       `  - «Загальний»: ${GENERAL.messages} messages over ${GENERAL.days} days (${Math.ceil(GENERAL.messages / MESSAGES_PAGE_SIZE)} pages of ${MESSAGES_PAGE_SIZE}); «Frontend команда» is a bit over one page`,
+      "",
+      "The same list is on the /seeds page of the client (no login needed).",
     ].join("\n"),
   );
 }

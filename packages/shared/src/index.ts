@@ -160,6 +160,23 @@ export interface MessagesResponse {
   hasMore: boolean;
 }
 
+/** A demo account from `pnpm db:seed`, as listed on the public /seeds page. */
+export interface SeedAccount {
+  id: number;
+  username: string;
+  name: string | null;
+  password: string;
+  /** Rooms the account is a member of right now. */
+  rooms: string[];
+  /** What's worth looking at when logged in as this account. */
+  note: string;
+}
+
+/** GET /api/seeds: demo accounts that exist and still have the demo password. */
+export interface SeedsResponse {
+  accounts: SeedAccount[];
+}
+
 export interface ApiError {
   error: string;
 }

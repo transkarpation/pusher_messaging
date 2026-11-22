@@ -75,6 +75,24 @@ h3 { font-size: 14px; font-weight: 600; }
   gap: 16px;
 }
 .auth { max-width: 360px; }
+
+/* ---- /seeds (demo accounts) ---------------------------------------------- */
+
+.seeds-page { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 16px; }
+.seeds-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.seeds-header h1 { font-size: 24px; margin-bottom: 4px; }
+.seeds-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.seed-card { padding: 16px; gap: 12px; justify-content: space-between; }
+.seed-who { display: flex; align-items: flex-start; gap: 12px; }
+.seed-names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.seed-creds { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; font-size: 14px; align-items: center; }
+.seed-creds dt { color: var(--muted); }
+.seed-creds dd { margin: 0; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.seed-rooms { overflow-wrap: anywhere; }
+.seeds-empty pre, .seed-creds code { font-family: ui-monospace, monospace; }
+.seed-creds code { padding: 1px 6px; border-radius: 4px; background: var(--bubble); }
+.seeds-empty pre { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--bubble); }
+.copy-btn { padding: 2px 6px; font-size: 13px; line-height: 1; }
 /* Password input with a Show/Hide button inside it, on the right. */
 .password-field { position: relative; display: flex; }
 .password-field input:not([type="checkbox"]) { flex: 1; padding-right: 64px; }

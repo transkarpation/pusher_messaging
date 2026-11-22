@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 
 /** Client-side pages; anything else shows the chat. */
 export const PROFILE_PATH = "/profile";
+/** Demo accounts from the seed; reachable without signing in. */
+export const SEEDS_PATH = "/seeds";
 
 const NAVIGATE_EVENT = "pm:navigate";
 

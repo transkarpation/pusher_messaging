@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { credentialsSchema } from "@pm/shared";
+import { SEEDS_PATH, navigate } from "../lib/router";
 import { useAuth } from "../store/auth";
 
 type Mode = "login" | "register";
@@ -85,6 +86,12 @@ export function AuthForm() {
         <button type="button" className="link" onClick={switchMode}>
           {mode === "login" ? "Sign up" : "Sign in"}
         </button>
+      </p>
+      <p className="muted small">
+        <button type="button" className="link" onClick={() => navigate(SEEDS_PATH)}>
+          Demo accounts
+        </button>{" "}
+        — log in as a seeded user
       </p>
     </div>
   );

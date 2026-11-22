@@ -14,6 +14,7 @@ import {
   type Room,
   type RoomInvite,
   type RoomMember,
+  type SeedsResponse,
   type TypingInput,
   type UpdateMessageInput,
   type UpdateProfileInput,
@@ -102,4 +103,7 @@ export const api = {
   declineInvitation: (roomId: number) => request<void>(`/invites/${roomId}/decline`, "POST"),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
+
+  /** Public: demo accounts from `pnpm db:seed` with their passwords. */
+  getSeeds: () => request<SeedsResponse>("/seeds"),
 };

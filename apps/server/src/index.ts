@@ -4,6 +4,7 @@ import { authRouter } from "./routes/auth.js";
 import { blocksRouter } from "./routes/blocks.js";
 import { invitesRouter } from "./routes/invites.js";
 import { roomsRouter } from "./routes/rooms.js";
+import { seedsRouter } from "./routes/seeds.js";
 import { usersRouter } from "./routes/users.js";
 import { realtimeRouter } from "./routes/realtime.js";
 import { loadUser } from "./middleware/auth.js";
@@ -23,6 +24,7 @@ app.use("/api/invites", invitesRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/blocks", blocksRouter);
 app.use("/api/realtime", realtimeRouter);
+app.use("/api/seeds", seedsRouter);
 
 const onError: ErrorRequestHandler = (err, _req, res, _next) => {
   // Body parsers fail with a 4xx `status` (malformed JSON, body too large); pass those on.
