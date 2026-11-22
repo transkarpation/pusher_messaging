@@ -6,6 +6,7 @@ Real-time chat with rooms, invitations, messages (editable and deletable) with f
 
 - **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, Pusher
 - **Client** (`apps/client`): React 19, Zustand, Vite, pusher-js
+- **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, pusher-js. See [Mobile app](#mobile-app)
 - **Shared** (`packages/shared`): zod schemas, types, channel and event names
 
 ## Requirements
@@ -77,6 +78,24 @@ The same accounts, with their passwords, rooms and a "Log in as" button, are on 
 - `pnpm db:seed --clean` only deletes it.
 
 Demo users are recognized by username. Deleting them also deletes the rooms they created, and their messages in other rooms.
+
+## Mobile app
+
+`apps/mobile` is an Expo app in the same workspace: it uses `@pm/shared` directly, so API changes show up as type errors in both clients. So far it covers signing in, the room list and a room's messages (reading, sending, live updates).
+
+```sh
+pnpm dev                  # the API has to be running
+cd apps/mobile
+cp .env.example .env      # optional, see below
+pnpm start                # then press a for Android, i for iOS, or scan the QR code with Expo Go
+```
+
+`EXPO_PUBLIC_API_URL` in `apps/mobile/.env` is the address of the API server. Without it the app uses `http://10.0.2.2:3000` on the Android emulator and `http://localhost:3000` on the iOS simulator. On a phone, set it to your computer's LAN address, e.g. `http://192.168.1.20:3000`.
+
+How it differs from the web client:
+
+- **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. Pusher private channels are authorized with the same header.
+- **Links.** `avatarUrl` and attachment `url` are paths on the API server. The app turns them into full URLs with `resolveApiUrl` from `@pm/shared` and loads images with the Bearer header, because attachments are served only to room members.
 
 ## Scripts
 

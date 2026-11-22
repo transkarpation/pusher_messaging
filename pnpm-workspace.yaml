@@ -1,3 +1,9 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Install scripts pnpm may run. None are needed: esbuild's only checks its prebuilt
+# binary (installed as an optional dependency), @scarf/scarf only sends install analytics.
+allowBuilds:
+  esbuild: false
+  "@scarf/scarf": false
