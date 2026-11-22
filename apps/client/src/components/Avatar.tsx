@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { User } from "@pm/shared";
+import type { Room, User } from "@pm/shared";
 import { displayName } from "../lib/users";
 
 /** Background colors for default avatars; all keep white text readable in both themes. */
@@ -55,4 +55,18 @@ export function Avatar({ user, size = 32, className }: AvatarProps) {
       {avatarInitial(user)}
     </span>
   );
+}
+
+/** A room's picture, or a colored rounded square with the first letter of its name. */
+export function RoomAvatar({
+  room,
+  size = 40,
+  className,
+}: {
+  room: Pick<Room, "id" | "name" | "avatarUrl">;
+  size?: number;
+  className?: string;
+}) {
+  const asUser = { id: room.id, name: room.name, username: room.name, avatarUrl: room.avatarUrl };
+  return <Avatar user={asUser} size={size} className={["room-avatar", className].filter(Boolean).join(" ")} />;
 }

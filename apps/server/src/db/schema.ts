@@ -66,7 +66,18 @@ export const rooms = pgTable("rooms", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 64 }).notNull(),
   createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  /** When the room's picture was set (null: none); also versions its URL. */
+  avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Room pictures, kept apart from `rooms` so room queries never load the bytes. */
+export const roomAvatars = pgTable("room_avatars", {
+  roomId: integer("room_id")
+    .primaryKey()
+    .references(() => rooms.id, { onDelete: "cascade" }),
+  contentType: varchar("content_type", { length: 32 }).notNull(),
+  data: bytea("data").notNull(),
 });
 
 export const roomRole = pgEnum("room_role", ["owner", "member"]);
@@ -101,7 +112,15 @@ export const roomInvites = pgTable(
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_invites_user_id_idx").on(t.userId)],
 );
 
-export const messageKind = pgEnum("message_kind", ["text", "member_joined", "member_left", "poll"]);
+export const messageKind = pgEnum("message_kind", [
+  "text",
+  "member_joined",
+  "member_left",
+  "poll",
+  "room_renamed",
+  "room_picture_changed",
+  "room_picture_removed",
+]);
 
 export const messages = pgTable(
   "messages",

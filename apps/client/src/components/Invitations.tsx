@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Invitation } from "@pm/shared";
 import { displayName } from "../lib/users";
+import { RoomAvatar } from "./Avatar";
 import { useInvitations } from "../store/invitations";
 
 /** "just now", "5m", "3h", "2d", then a date. */
@@ -34,7 +35,10 @@ function InvitationCard({ invitation }: { invitation: Invitation }) {
   const { invitedBy, memberCount } = invitation;
   return (
     <li className="invitation">
-      <span className="room-name">{invitation.roomName}</span>
+      <div className="invitation-room">
+        <RoomAvatar room={{ id: invitation.roomId, name: invitation.roomName, avatarUrl: invitation.roomAvatarUrl }} size={32} />
+        <span className="room-name">{invitation.roomName}</span>
+      </div>
       <span className="muted small">
         {invitedBy ? `${displayName(invitedBy)} invited you` : "You were invited"} · {ago(invitation.createdAt)}
       </span>

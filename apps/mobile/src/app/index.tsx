@@ -9,11 +9,13 @@ import {
   ROOM_ADDED_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
+  ROOM_UPDATED_EVENT,
   roomChannel,
   userChannel,
   type Receipt,
   type Room,
 } from "@pm/shared";
+import { RoomAvatar } from "../components/RoomAvatar";
 import { api } from "../lib/api";
 import { preview } from "../lib/format";
 import { getRealtime, listen } from "../lib/realtime";
@@ -88,6 +90,7 @@ export default function RoomsScreen() {
           [MESSAGE_UPDATED_EVENT]: scheduleReload,
           [MESSAGE_DELETED_EVENT]: scheduleReload,
           [ROOM_MEMBERS_EVENT]: scheduleReload,
+          [ROOM_UPDATED_EVENT]: scheduleReload,
           // Read on another device of mine.
           [RECEIPT_UPDATED_EVENT]: (r: Receipt) => r.userId === me.id && scheduleReload(),
         };
@@ -149,6 +152,7 @@ export default function RoomsScreen() {
               })
             }
           >
+            <RoomAvatar room={item} />
             <View style={styles.rowText}>
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}

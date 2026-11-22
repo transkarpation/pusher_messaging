@@ -21,9 +21,11 @@ import {
   POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
   ROOM_MEMBERS_EVENT,
+  ROOM_UPDATED_EVENT,
   deliveryOf,
   isInlineImage,
   isSystemMessage,
+  systemMessageText,
   mergeReceipt,
   roomChannel,
   userChannel,
@@ -34,6 +36,7 @@ import {
   type PollVotedEvent,
   type Receipt,
   type RoomMembersEvent,
+  type RoomUpdatedEvent,
 } from "@pm/shared";
 import { CreatePollModal } from "../../components/CreatePollModal";
 import { PollCard } from "../../components/PollCard";
@@ -73,6 +76,8 @@ const NEAR_BOTTOM_THRESHOLD = 80;
 export default function RoomScreen() {
   const styles = useStyles(makeStyles);
   const { id, name, owner } = useLocalSearchParams<{ id: string; name?: string; owner?: string }>();
+  // The owner may rename the room while it's open.
+  const [title, setTitle] = useState(name ?? "Room");
   const roomId = Number(id);
   const me = useSession((s) => s.user)!;
   /** Only the room owner posts polls; passed by the room list, then kept current by `room:members`. */
@@ -166,6 +171,7 @@ export default function RoomScreen() {
             patchPoll(e.messageId, (p) => (e.poll.version < p.version ? p : { ...e.poll, myVotes: p.myVotes })),
           [ROOM_MEMBERS_EVENT]: (e: RoomMembersEvent) =>
             setIsOwner(e.members.some((m) => m.user.id === me.id && m.role === "owner")),
+          [ROOM_UPDATED_EVENT]: (e: RoomUpdatedEvent) => setTitle(e.name),
         });
         // My vote changed on another device.
         stopUser = listen(conn, userChannel(me.id), {
@@ -221,7 +227,7 @@ export default function RoomScreen() {
       behavior="padding"
       keyboardVerticalOffset={headerHeight}
     >
-      <Stack.Screen options={{ title: name ?? "Room" }} />
+      <Stack.Screen options={{ title }} />
       {!loaded && !error ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
@@ -321,8 +327,7 @@ function MessageItem({
   const styles = useStyles(makeStyles);
   const own = m.author.id === meId;
   if (isSystemMessage(m)) {
-    const who = own ? "You" : displayName(m.author);
-    return <Text style={styles.system}>{m.kind === "member_joined" ? `${who} joined the room` : `${who} left the room`}</Text>;
+    return <Text style={styles.system}>{systemMessageText(m, own ? "You" : displayName(m.author))}</Text>;
   }
   return (
     <View style={[styles.bubble, own ? styles.own : styles.other, m.poll && !m.deletedAt && styles.pollBubble]}>

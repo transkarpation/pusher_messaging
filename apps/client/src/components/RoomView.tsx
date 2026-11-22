@@ -22,9 +22,10 @@ import { EMPTY_ROOM, useMessages } from "../store/messages";
 import { useBlocks } from "../store/blocks";
 import { useRooms } from "../store/rooms";
 import { DraftAttachments, MessageAttachments, PendingAttachments } from "./Attachments";
-import { Avatar } from "./Avatar";
+import { Avatar, RoomAvatar } from "./Avatar";
 import { CreatePollModal } from "./CreatePollModal";
 import { DeleteMessageModal } from "./DeleteMessageModal";
+import { EditRoomModal } from "./EditRoomModal";
 import { EmojiPicker } from "./EmojiPicker";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
@@ -81,6 +82,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Message | null>(null);
   const [creatingPoll, setCreatingPoll] = useState(false);
+  const [editingRoom, setEditingRoom] = useState(false);
   /** On touch devices, tapping a message shows its actions (there's no hover). */
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -489,7 +491,13 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
           <button type="button" className="ghost icon back-btn" aria-label="Back to rooms" onClick={() => setActive(null)}>
             ←
           </button>
+          <RoomAvatar room={room} size={36} />
           <h2>{room.name}</h2>
+          {isOwner && (
+            <button type="button" className="ghost icon" aria-label="Edit room" title="Edit room" onClick={() => setEditingRoom(true)}>
+              ✎
+            </button>
+          )}
           <button type="button" className="secondary members-toggle" onClick={() => setShowMembers(true)}>
             Members · {room.members.length}
           </button>
@@ -688,6 +696,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
 
       {deleting && <DeleteMessageModal message={deleting} me={me} onClose={() => setDeleting(null)} />}
       {creatingPoll && <CreatePollModal roomId={room.id} onClose={() => setCreatingPoll(false)} />}
+      {editingRoom && <EditRoomModal room={room} onClose={() => setEditingRoom(false)} />}
     </section>
   );
 }

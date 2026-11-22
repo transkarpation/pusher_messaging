@@ -1,21 +1,10 @@
-import { ONLINE_CHANNEL, USER_UPDATED_EVENT, type AvatarContentType, type User } from "@pm/shared";
+import { ONLINE_CHANNEL, USER_UPDATED_EVENT, type User } from "@pm/shared";
 import { badRequest, notFound } from "../../shared/errors.js";
+import { sniffImageType } from "../../shared/images.js";
 import type { RealtimePublisher } from "../realtime/index.js";
 import type { Avatar, UserCredentials, UsersRepository } from "./users.repository.js";
 
 const SEARCH_LIMIT = 20;
-
-/** Detects the image type from its first bytes; null if it's none of the accepted ones. */
-export function sniffImageType(data: Buffer): AvatarContentType | null {
-  if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return "image/png";
-  }
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return "image/jpeg";
-  if (data.length >= 12 && data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP") {
-    return "image/webp";
-  }
-  return null;
-}
 
 /** The users module's facade: accounts, profiles and avatars. */
 export class UsersService {

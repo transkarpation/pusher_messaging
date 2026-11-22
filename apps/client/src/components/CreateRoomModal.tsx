@@ -1,26 +1,27 @@
 import { useState, type FormEvent } from "react";
 import { createRoomSchema, type User } from "@pm/shared";
 import { api } from "../api";
+import { toBase64 } from "../lib/image";
 import { useRooms } from "../store/rooms";
 import { Modal } from "./Modal";
+import { RoomPictureField, type PictureChoice } from "./RoomPictureField";
 import { UserPicker } from "./UserPicker";
 
 export function CreateRoomModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [invitees, setInvitees] = useState<User[]>([]);
+  const [picture, setPicture] = useState<PictureChoice>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const parsed = createRoomSchema.safeParse({ name, inviteIds: invitees.map((u) => u.id) });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Invalid input");
-      return;
-    }
     setError(null);
     setSubmitting(true);
     try {
+      const avatar = picture && picture !== "removed" ? await toBase64(picture.blob) : undefined;
+      const parsed = createRoomSchema.safeParse({ name, inviteIds: invitees.map((u) => u.id), avatar });
+      if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid input");
       const room = await api.createRoom(parsed.data);
       const rooms = useRooms.getState();
       rooms.upsert(room);
@@ -35,6 +36,17 @@ export function CreateRoomModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="New room" onClose={onClose}>
       <form onSubmit={onSubmit} className="stack">
+        <RoomPictureField
+          roomId={0}
+          name={name}
+          currentUrl={null}
+          value={picture}
+          onChange={(p) => {
+            setPicture(p);
+            setError(null);
+          }}
+          onError={setError}
+        />
         <label>
           Name
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Weekend plans" />

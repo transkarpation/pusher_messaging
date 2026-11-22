@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms, invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
+Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
 
 ## Stack
 
@@ -141,7 +141,7 @@ Modules use each other only through the facade exported from their `index.ts`, n
 |---|---|
 | `presence-online` | who is online, profile updates |
 | `private-user-{id}` | invitations received or gone, the user joined or was removed from a room, their own poll votes (for their other tabs) |
-| `private-room-{id}` | new, edited and deleted messages, poll results, typing, receipts, member and invite changes |
+| `private-room-{id}` | new, edited and deleted messages, poll results, typing, receipts, member and invite changes, the room renamed or its picture changed |
 
 Each `subscribe` is checked by `RealtimeService`: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. Each connection has a socket id; clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
 
@@ -180,6 +180,12 @@ Restart the server after changing them; it logs which storage is on. Objects are
 Each attachment row remembers where its bytes are (`attachments.storage_key`: an S3 key, or null for Postgres), so turning S3 on needs no migration: files uploaded before keep being served from Postgres. Removing `S3_BUCKET` later sends new uploads back to Postgres, but files already in S3 can then no longer be read.
 
 Downloads still go through `GET /api/rooms/{roomId}/attachments/{id}`, so the bucket stays private (block all public access): the server checks room membership and reads the object. When a message is deleted, or an unsent upload expires, its object is deleted from the bucket after the database change; a failed delete is logged and leaves an orphaned object.
+
+## Room name and picture
+
+A room can get a picture when it's created (`avatar` in `POST /api/rooms`: a PNG, JPEG or WebP image up to 1 MB, base64-encoded; the web client crops it to a 256 px square first). Afterwards the owner can rename the room and change or remove the picture with `PATCH /api/rooms/:id` (the ✎ button in the room header on the web). Each actual change posts a system line ("Olena renamed the room to «…»", "… changed the room picture"), members get `room:updated` on the room channel, and people invited get `invitation:added` again with the new name and picture. Rooms without a picture show a colored rounded square with the first letter of the name.
+
+The picture is served at `/api/rooms/:id/avatar?v=…` to members and to people invited (so the invitation can show it); the `v` changes with every new picture, so responses are cached for good.
 
 ## Invitations
 

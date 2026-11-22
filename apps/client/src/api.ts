@@ -10,6 +10,8 @@ import {
   type CreateMessageInput,
   type CreatePollInput,
   type CreateRoomInput,
+  type UpdateRoomInput,
+  type RoomUpdatedEvent,
   type Credentials,
   type Invitation,
   type InviteInput,
@@ -83,6 +85,7 @@ export const api = {
 
   getRooms: () => request<Room[]>("/rooms"),
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
+  updateRoom: (roomId: number, input: UpdateRoomInput) => request<RoomUpdatedEvent>(room(roomId), "PATCH", input),
   invite: (roomId: number, input: InviteInput) =>
     request<{ invites: RoomInvite[] }>(`${room(roomId)}/invites`, "POST", input),
   cancelInvite: (roomId: number, userId: number) =>

@@ -90,12 +90,38 @@ export type UpdateMessageInput = z.infer<typeof updateMessageSchema>;
 
 const userIds = z.array(z.number().int().positive()).max(100, "Too many users");
 
+/** Image types accepted for avatars: PUT /auth/me/avatar (the raw request body) and a new room's `avatar`. */
+export const AVATAR_CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type AvatarContentType = (typeof AVATAR_CONTENT_TYPES)[number];
+/** Max upload size; the client scales images down to `AVATAR_SIZE` px before uploading. */
+export const AVATAR_MAX_BYTES = 1024 * 1024;
+export const AVATAR_SIZE = 256;
+
+const roomName = z.string().trim().min(1, "Room name is required").max(64, "Room name is too long");
+const avatarBase64 = z
+  .string()
+  .min(1, "The picture is empty")
+  .max(Math.ceil(AVATAR_MAX_BYTES / 3) * 4, "The picture is too large")
+  .regex(/^[A-Za-z0-9+/]*={0,2}$/, "The picture must be base64-encoded");
+
 export const createRoomSchema = z.object({
-  name: z.string().trim().min(1, "Room name is required").max(64, "Room name is too long"),
+  name: roomName,
   /** People to invite; they join once they accept. */
   inviteIds: userIds.default([]),
+  /** The room's picture: a PNG, JPEG or WebP image (up to `AVATAR_MAX_BYTES`), base64-encoded. */
+  avatar: avatarBase64.optional(),
 });
 export type CreateRoomInput = z.input<typeof createRoomSchema>;
+
+/** The owner's changes to a room; fields left out stay as they are. */
+export const updateRoomSchema = z
+  .object({
+    name: roomName.optional(),
+    /** A new picture (as in `createRoomSchema`), or null to remove it. */
+    avatar: avatarBase64.nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.avatar !== undefined, "Nothing to change");
+export type UpdateRoomInput = z.input<typeof updateRoomSchema>;
 
 export const inviteSchema = z.object({
   userIds: userIds.min(1, "Pick at least one person"),
@@ -110,23 +136,52 @@ export interface User {
   avatarUrl: string | null;
 }
 
-/** Image types accepted by PUT /auth/me/avatar (sent as the raw request body). */
-export const AVATAR_CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
-export type AvatarContentType = (typeof AVATAR_CONTENT_TYPES)[number];
-/** Max upload size; the client scales images down to `AVATAR_SIZE` px before uploading. */
-export const AVATAR_MAX_BYTES = 1024 * 1024;
-export const AVATAR_SIZE = 256;
-
 /**
  * "text": a regular message written by `author`.
  * "poll": a poll posted by `author` (the room owner), in `Message.poll`; `text` is "".
- * System lines, where `author` is who it's about and `text` is "":
- * "member_joined": accepted an invite; "member_left": left the room.
+ * System lines, where `author` is who it's about (or who did it) and `text` is "" unless noted:
+ * "member_joined": accepted an invite; "member_left": left the room;
+ * "room_renamed": the owner renamed the room, `text` is the new name;
+ * "room_picture_changed" / "room_picture_removed": the owner set or removed the room's picture.
  */
-export type MessageKind = "text" | "poll" | "member_joined" | "member_left";
+export type MessageKind =
+  | "text"
+  | "poll"
+  | "member_joined"
+  | "member_left"
+  | "room_renamed"
+  | "room_picture_changed"
+  | "room_picture_removed";
+
+export const SYSTEM_MESSAGE_KINDS = [
+  "member_joined",
+  "member_left",
+  "room_renamed",
+  "room_picture_changed",
+  "room_picture_removed",
+] as const satisfies readonly MessageKind[];
 
 /** "Bob joined the room" and the like, as opposed to messages someone wrote (text and polls). */
-export const isSystemMessage = (m: { kind: MessageKind }) => m.kind === "member_joined" || m.kind === "member_left";
+export const isSystemMessage = (m: { kind: MessageKind }) => (SYSTEM_MESSAGE_KINDS as readonly MessageKind[]).includes(m.kind);
+
+/** A system line's text, with `who` the display name of its author ("You" for oneself); null for other messages. */
+export function systemMessageText(m: { kind: MessageKind; text: string }, who: string): string | null {
+  switch (m.kind) {
+    case "member_joined":
+      return `${who} joined the room`;
+    case "member_left":
+      return `${who} left the room`;
+    case "room_renamed":
+      return `${who} renamed the room to «${m.text}»`;
+    case "room_picture_changed":
+      return `${who} changed the room picture`;
+    case "room_picture_removed":
+      return `${who} removed the room picture`;
+    case "text":
+    case "poll":
+      return null;
+  }
+}
 
 /** A file attached to a message. */
 export interface Attachment {
@@ -312,6 +367,8 @@ export interface RoomInvite {
 export interface Invitation {
   roomId: number;
   roomName: string;
+  /** The room's picture (see `Room.avatarUrl`), or null. */
+  roomAvatarUrl: string | null;
   invitedBy: User | null;
   memberCount: number;
   createdAt: string;
@@ -321,6 +378,11 @@ export interface Invitation {
 export interface Room {
   id: number;
   name: string;
+  /**
+   * The picture chosen when the room was created (`/api/rooms/{id}/avatar?v=…`), or null for
+   * the default one. Served to members and to people invited to the room.
+   */
+  avatarUrl: string | null;
   createdAt: string;
   members: RoomMember[];
   /** People invited who haven't accepted or declined yet. */
@@ -421,6 +483,8 @@ export const USER_TYPING_EVENT = "user:typing";
 export const RECEIPT_UPDATED_EVENT = "receipt:updated";
 export const ROOM_MEMBERS_EVENT = "room:members";
 export const ROOM_INVITES_EVENT = "room:invites";
+/** Carries `RoomUpdatedEvent`: the owner renamed the room or changed its picture. */
+export const ROOM_UPDATED_EVENT = "room:updated";
 /** Carries `PollUpdatedEvent`: a poll got a vote, an option or a comment. */
 export const POLL_UPDATED_EVENT = "poll:updated";
 // user channel events
@@ -453,6 +517,13 @@ export interface RoomMembersEvent {
 
 export interface RoomRemovedEvent {
   roomId: number;
+}
+
+/** The owner changed the room's name or picture. */
+export interface RoomUpdatedEvent {
+  roomId: number;
+  name: string;
+  avatarUrl: string | null;
 }
 
 export interface BlocksEvent {

@@ -8,6 +8,7 @@ import {
   createMessageSchema,
   createPollSchema,
   createRoomSchema,
+  updateRoomSchema,
   inviteSchema,
   messagesQuerySchema,
   pollCommentSchema,
@@ -70,12 +71,35 @@ export function roomsRoutes(
     res.status(201).json(await rooms.create(actorOf(req), input));
   });
 
+  /**
+   * The room's picture, also for people invited to it (they aren't members yet). Clients use
+   * the versioned `Room.avatarUrl`, so the response can be cached for good.
+   */
+  router.get("/:roomId/avatar", async (req, res) => {
+    const roomId = idParam(req.params.roomId, "Invalid room id");
+    const avatar = await rooms.getAvatar(req.user!.id, roomId);
+    res
+      .set({
+        "Content-Type": avatar.contentType,
+        "Cache-Control": "private, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'",
+      })
+      .send(avatar.data);
+  });
+
   // Everything below acts on a specific room the caller belongs to.
   const room = Router({ mergeParams: true });
   router.use("/:roomId", requireRoomMember(rooms), room);
 
   room.get("/", async (req, res) => {
     res.json(await rooms.get(req.user!.id, req.room!.id));
+  });
+
+  /** The owner renames the room and/or changes its picture. */
+  room.patch("/", async (req, res) => {
+    const input = parse(updateRoomSchema, req.body);
+    res.json(await rooms.update(actorOf(req), req.room!, input));
   });
 
   /** Any member may invite people; they join once they accept (see /api/invites). */

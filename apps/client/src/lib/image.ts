@@ -27,3 +27,13 @@ export async function prepareAvatar(file: File): Promise<Blob> {
   if (!blob) throw new Error("Couldn't process the image");
   return blob;
 }
+
+/** The blob's bytes as plain base64 (no `data:` prefix), for JSON request bodies. */
+export function toBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+    reader.onerror = () => reject(new Error("Couldn't read the image"));
+    reader.readAsDataURL(blob);
+  });
+}

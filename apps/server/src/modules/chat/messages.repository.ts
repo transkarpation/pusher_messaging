@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
-import type { MessageKind, Receipt } from "@pm/shared";
+import { SYSTEM_MESSAGE_KINDS, type MessageKind, type Receipt } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
 
@@ -7,7 +7,7 @@ const { messages, receipts } = schema;
 
 /** Kinds someone wrote, as opposed to system lines: they count as unread and can be deleted. */
 const AUTHORED_KINDS: MessageKind[] = ["text", "poll"];
-const SYSTEM_KINDS: MessageKind[] = ["member_joined", "member_left"];
+const SYSTEM_KINDS: MessageKind[] = [...SYSTEM_MESSAGE_KINDS];
 
 /** A message as stored: the author is an id, attached by the service. */
 export interface MessageRow {

@@ -4,7 +4,7 @@ import { PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
-import { Avatar } from "./Avatar";
+import { Avatar, RoomAvatar } from "./Avatar";
 import { CreateRoomModal } from "./CreateRoomModal";
 import { Invitations } from "./Invitations";
 import { ThemeToggle } from "./ThemeToggle";
@@ -72,6 +72,7 @@ export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
                   navigate("/");
                 }}
               >
+                <RoomAvatar room={room} size={40} />
                 <span className="room-name">{room.name}</span>
                 <span className="room-preview">{preview}</span>
                 {room.unreadCount > 0 && (

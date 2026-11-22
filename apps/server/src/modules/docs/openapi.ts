@@ -12,6 +12,8 @@ import {
   createMessageSchema,
   createPollSchema,
   createRoomSchema,
+  updateRoomSchema,
+  SYSTEM_MESSAGE_KINDS,
   authRequestSchema,
   inviteSchema,
   pollCommentSchema,
@@ -97,11 +99,12 @@ const schemas: Record<string, Schema> = {
   }),
   MessageKind: {
     type: "string",
-    enum: ["text", "poll", "member_joined", "member_left"],
+    enum: ["text", "poll", ...SYSTEM_MESSAGE_KINDS],
     description:
       "`text`: a regular message by `author`. `poll`: a poll by `author` (the room owner) in `poll`, `text` is \"\". " +
-      "System lines (`text` is \"\", `author` is who it's about): " +
-      "`member_joined` accepted an invite, `member_left` left the room.",
+      "System lines (`text` is \"\" unless noted, `author` is who it's about or who did it): " +
+      "`member_joined` accepted an invite, `member_left` left the room, `room_renamed` the owner renamed the room (`text` is the new name), " +
+      "`room_picture_changed` / `room_picture_removed` the owner set or removed the room's picture.",
   },
   Attachment: object({
     id: { type: "integer" },
@@ -168,6 +171,10 @@ const schemas: Record<string, Schema> = {
   Room: object({
     id: { type: "integer" },
     name: { type: "string" },
+    avatarUrl: {
+      ...nullable({ type: "string" }),
+      description: "Picture chosen when the room was created (`/api/rooms/{id}/avatar?v=…`), or null for the default one",
+    },
     createdAt: isoDate(),
     members: arrayOf(ref("RoomMember")),
     invites: { ...arrayOf(ref("RoomInvite")), description: "Pending invites" },
@@ -181,10 +188,16 @@ const schemas: Record<string, Schema> = {
     },
     myReceipt: object({ deliveredUpTo: { type: "integer" }, readUpTo: { type: "integer" } }),
   }),
+  RoomUpdatedEvent: object({
+    roomId: { type: "integer" },
+    name: { type: "string" },
+    avatarUrl: nullable({ type: "string" }),
+  }),
   Invitation: {
     ...object({
       roomId: { type: "integer" },
       roomName: { type: "string" },
+      roomAvatarUrl: { ...nullable({ type: "string" }), description: "The room's picture (`/api/rooms/{id}/avatar?v=…`), or null" },
       invitedBy: nullable(ref("User")),
       memberCount: { type: "integer" },
       createdAt: isoDate(),
@@ -353,9 +366,27 @@ const paths: Record<string, Record<string, Schema>> = {
     post: {
       tags: [tags.rooms],
       summary: "Create a room",
-      description: "You become its owner. `inviteIds` are invited (unknown ids and yourself are skipped); they join once they accept.",
+      description:
+        "You become its owner. `inviteIds` are invited (unknown ids and yourself are skipped); they join once they accept. " +
+        "`avatar` is an optional picture: a PNG, JPEG or WebP image of up to 1 MB, base64-encoded (no `data:` prefix); clients scale it to 256 px first.",
       requestBody: jsonBody(fromZod(createRoomSchema)),
       responses: { 201: json(ref("Room"), "The new room"), ...badRequest, ...unauthorized },
+    },
+  },
+  "/rooms/{roomId}/avatar": {
+    get: {
+      tags: [tags.rooms],
+      summary: "A room's picture",
+      description: "For members and people invited to the room. Use the versioned `Room.avatarUrl`: responses are cached for a year.",
+      parameters: [idParam("roomId", "Room id")],
+      responses: {
+        200: {
+          description: "The image",
+          content: Object.fromEntries(AVATAR_CONTENT_TYPES.map((t) => [t, { schema: { type: "string", contentMediaType: t } }])),
+        },
+        ...unauthorized,
+        404: error("The room has no picture, or you're neither a member nor invited"),
+      },
     },
   },
   "/rooms/{roomId}": {
@@ -364,6 +395,23 @@ const paths: Record<string, Record<string, Schema>> = {
       summary: "One room",
       parameters: [roomId],
       responses: { 200: json(ref("Room"), "The room"), ...unauthorized, ...roomNotFound },
+    },
+    patch: {
+      tags: [tags.rooms],
+      summary: "Rename the room or change its picture",
+      description:
+        "Owner only. Send `name`, `avatar` (a PNG, JPEG or WebP image of up to 1 MB, base64-encoded) or `avatar: null` to remove the picture; " +
+        "fields left out stay. Each actual change posts a system line (`room_renamed`, `room_picture_changed`, `room_picture_removed`), " +
+        "broadcasts `room:updated` on the room channel and re-sends `invitation:added` to people invited.",
+      parameters: [roomId],
+      requestBody: jsonBody(fromZod(updateRoomSchema)),
+      responses: {
+        200: json(ref("RoomUpdatedEvent"), "The room's name and picture after the change"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Only the owner can change the room"),
+        ...roomNotFound,
+      },
     },
   },
   "/rooms/{roomId}/invites": {

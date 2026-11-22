@@ -1,5 +1,14 @@
 import { create } from "zustand";
-import { isSystemMessage, type Message, type Receipt, type Room, type RoomInvite, type RoomMember, type User } from "@pm/shared";
+import {
+  isSystemMessage,
+  type Message,
+  type Receipt,
+  type Room,
+  type RoomInvite,
+  type RoomMember,
+  type RoomUpdatedEvent,
+  type User,
+} from "@pm/shared";
 import { api } from "../api";
 import { latestVersion } from "../lib/messageVersion";
 import { isBlocked } from "./blocks";
@@ -77,6 +86,8 @@ interface RoomsState {
   setActive: (roomId: number | null) => void;
   setMembers: (roomId: number, members: RoomMember[]) => void;
   setInvites: (roomId: number, invites: RoomInvite[]) => void;
+  /** The room's new name and picture, after the owner changed them. */
+  setDetails: (event: RoomUpdatedEvent) => void;
   /** Updates last message and unread count (regular messages only) for a new message in a room. */
   onMessage: (message: Message, opts: { fromMe: boolean; viewing: boolean }) => void;
   /** Refreshes the last message if it is the one that was edited. */
@@ -127,6 +138,12 @@ export const useRooms = create<RoomsState>((set, get) => ({
     writeActive(roomId);
     set({ activeRoomId: roomId });
   },
+
+  setDetails: ({ roomId, name, avatarUrl }) =>
+    set((s) => {
+      const room = s.rooms[roomId];
+      return room ? { rooms: { ...s.rooms, [roomId]: { ...room, name, avatarUrl } } } : s;
+    }),
 
   setMembers: (roomId, members) =>
     set((s) => {

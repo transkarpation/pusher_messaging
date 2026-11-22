@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
+import { roomAvatarUrl } from "./rooms.repository.js";
 
 const { rooms, roomInvites } = schema;
 
@@ -15,6 +16,7 @@ export interface InviteRow {
 export interface InvitationRow {
   roomId: number;
   roomName: string;
+  roomAvatarUrl: string | null;
   invitedBy: number | null;
   createdAt: Date;
 }
@@ -58,6 +60,7 @@ export class DrizzleInvitesRepository implements InvitesRepository {
       .select({
         roomId: rooms.id,
         roomName: rooms.name,
+        roomAvatarUrl,
         invitedBy: roomInvites.invitedBy,
         createdAt: roomInvites.createdAt,
       })

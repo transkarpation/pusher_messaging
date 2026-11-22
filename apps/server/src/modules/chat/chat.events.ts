@@ -11,6 +11,7 @@ import {
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
+  ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
   roomChannel,
   userChannel,
@@ -24,6 +25,7 @@ import {
   type RoomMember,
   type RoomMembersEvent,
   type RoomRemovedEvent,
+  type RoomUpdatedEvent,
   type TypingEvent,
 } from "@pm/shared";
 import type { RealtimePublisher } from "../realtime/index.js";
@@ -64,6 +66,10 @@ export class ChatEvents {
 
   receiptUpdated(receipt: Receipt, except?: string) {
     this.realtime.publish(roomChannel(receipt.roomId), RECEIPT_UPDATED_EVENT, receipt, except);
+  }
+
+  roomUpdated(event: RoomUpdatedEvent, except?: string) {
+    this.realtime.publish(roomChannel(event.roomId), ROOM_UPDATED_EVENT, event, except);
   }
 
   typing(event: TypingEvent, except?: string) {

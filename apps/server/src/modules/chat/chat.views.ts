@@ -57,6 +57,7 @@ export class ChatViews {
       return {
         id: r.id,
         name: r.name,
+        avatarUrl: r.avatarUrl,
         createdAt: r.createdAt.toISOString(),
         members: memberRows
           .filter((m) => m.roomId === r.id)
@@ -93,6 +94,7 @@ export class ChatViews {
     return rows.map((r) => ({
       roomId: r.roomId,
       roomName: r.roomName,
+      roomAvatarUrl: r.roomAvatarUrl,
       invitedBy: r.invitedBy === null ? null : (users.get(r.invitedBy) ?? null),
       createdAt: r.createdAt.toISOString(),
       memberCount: counts.get(r.roomId) ?? 0,

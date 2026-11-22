@@ -13,7 +13,8 @@ import { errorHandler } from "./shared/errors.js";
 /** The HTTP app: parsers, the session user, each module's routes, docs and error handling. */
 export function createApp(c: Container) {
   const app = express();
-  app.use(express.json());
+  // Room creation carries its picture base64-encoded (up to AVATAR_MAX_BYTES), hence the limit.
+  app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: false }));
   app.use(cookieParser());
   app.use(loadUser(c.auth));

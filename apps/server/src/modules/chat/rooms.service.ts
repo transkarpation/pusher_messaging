@@ -1,5 +1,14 @@
-import type { CreateRoomInput, Room, RoomMember, RoomRole } from "@pm/shared";
+import {
+  AVATAR_MAX_BYTES,
+  type CreateRoomInput,
+  type MessageKind,
+  type Room,
+  type RoomMember,
+  type RoomRole,
+  type RoomUpdatedEvent,
+} from "@pm/shared";
 import { badRequest, forbidden, notFound } from "../../shared/errors.js";
+import { sniffImageType } from "../../shared/images.js";
 import type { Actor } from "../../shared/http.js";
 import type { Transactor } from "../../shared/transaction.js";
 import type { UsersService } from "../users/index.js";
@@ -43,17 +52,58 @@ export class RoomsService {
   }
 
   /** Creates the room with the actor as owner; `inviteIds` are invited and join once they accept. */
-  async create(actor: Actor, input: { name: string; inviteIds: NonNullable<CreateRoomInput["inviteIds"]> }): Promise<Room> {
+  /** `avatar`: the room's picture, base64-encoded; its type is taken from the bytes. */
+  async create(
+    actor: Actor,
+    input: { name: string; inviteIds: NonNullable<CreateRoomInput["inviteIds"]>; avatar?: string },
+  ): Promise<Room> {
     const me = actor.user;
+    const avatar = input.avatar ? decodeAvatar(input.avatar) : undefined;
     const inviteIds = await this.users.existingIds(input.inviteIds, me.id);
     const roomId = await this.tx.run(async (tx) => {
-      const id = await this.rooms.withTx(tx).create(input.name, me.id);
+      const id = await this.rooms.withTx(tx).create(input.name, me.id, avatar);
       await this.invites.withTx(tx).create(id, me.id, inviteIds);
       return id;
     });
     const room = await this.get(me.id, roomId);
     this.events.invitationsAdded(roomId, inviteIds);
     return room;
+  }
+
+  /**
+   * The owner renames the room and/or changes its picture (`avatar`: base64, or null to remove
+   * it). Each actual change posts a system line; members get `room:updated`, and people
+   * invited get their invitation again with the new name and picture.
+   */
+  async update(actor: Actor, room: RoomAccess, input: { name?: string; avatar?: string | null }): Promise<RoomUpdatedEvent> {
+    if (room.role !== "owner") throw forbidden("Only the owner can change the room");
+    const avatar = typeof input.avatar === "string" ? decodeAvatar(input.avatar) : input.avatar;
+    const { result, lines } = await this.tx.run(async (tx) => {
+      const result = await this.rooms.withTx(tx).update(room.id, { name: input.name, avatar });
+      const kinds: [MessageKind, string][] = [];
+      if (result.renamed) kinds.push(["room_renamed", result.name]);
+      if (result.pictureChanged) kinds.push([avatar ? "room_picture_changed" : "room_picture_removed", ""]);
+      const messages = this.messages.withTx(tx);
+      const lines = [];
+      for (const [kind, text] of kinds) lines.push(await messages.create(room.id, actor.user.id, kind, text));
+      return { result, lines };
+    });
+
+    const event: RoomUpdatedEvent = { roomId: room.id, name: result.name, avatarUrl: result.avatarUrl };
+    if (lines.length === 0) return event;
+    // Also to the actor's own connection: the response doesn't carry the system lines.
+    this.events.roomUpdated(event);
+    for (const line of lines) this.events.messageCreated(await this.views.message(line, [actor.user]));
+    const invited = await this.invites.forRooms([room.id]);
+    this.events.invitationsAdded(room.id, invited.map((i) => i.userId));
+    return event;
+  }
+
+  /** The room's picture, for its members and the people invited to it. */
+  async getAvatar(viewerId: number, roomId: number) {
+    const avatar = await this.rooms.findAvatar(roomId, viewerId);
+    if (!avatar) throw notFound("Not found");
+    return avatar;
   }
 
   /**
@@ -88,4 +138,13 @@ export class RoomsService {
     for (const row of await this.rooms.roomNamesOf(userIds)) names.get(row.userId)?.push(row.roomName);
     return names;
   }
+}
+
+/** A base64 PNG, JPEG or WebP image up to `AVATAR_MAX_BYTES`. */
+function decodeAvatar(base64: string) {
+  const data = Buffer.from(base64, "base64");
+  if (data.length > AVATAR_MAX_BYTES) throw badRequest("The picture is too large");
+  const contentType = sniffImageType(data);
+  if (!contentType) throw badRequest("The picture must be a PNG, JPEG or WebP image");
+  return { contentType, data };
 }

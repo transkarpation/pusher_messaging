@@ -1,13 +1,23 @@
-import { and, asc, count, eq, inArray } from "drizzle-orm";
-import type { RoomRole } from "@pm/shared";
+import { and, asc, count, eq, exists, inArray, or, sql, type SQL } from "drizzle-orm";
+import type { AvatarContentType, RoomRole } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
 
-const { rooms, roomMembers } = schema;
+const { rooms, roomMembers, roomAvatars, roomInvites } = schema;
+
+/** `avatarUrl` carries the time the picture was set, so the response can be cached forever. */
+export const roomAvatarUrl: SQL<string | null> = sql<string | null>`case when ${rooms.avatarUpdatedAt} is null then null
+  else '/api/rooms/' || ${rooms.id} || '/avatar?v=' || floor(extract(epoch from ${rooms.avatarUpdatedAt}) * 1000)::bigint end`;
+
+export interface RoomAvatar {
+  contentType: AvatarContentType;
+  data: Buffer;
+}
 
 export interface RoomRow {
   id: number;
   name: string;
+  avatarUrl: string | null;
   createdAt: Date;
 }
 
@@ -30,8 +40,18 @@ export interface RoomsRepository {
   memberIdsAmong(roomId: number, userIds: number[]): Promise<number[]>;
   /** Room names per member, by room id. */
   roomNamesOf(userIds: number[]): Promise<{ userId: number; roomName: string }[]>;
-  /** Creates the room with `ownerId` as its owner; returns the room id. */
-  create(name: string, ownerId: number): Promise<number>;
+  /** Creates the room with `ownerId` as its owner and the optional picture; returns the room id. */
+  create(name: string, ownerId: number, avatar?: RoomAvatar): Promise<number>;
+  /**
+   * Renames the room and/or replaces its picture (null removes it); fields left out stay.
+   * Returns the room's name and picture URL after the change, and what actually changed.
+   */
+  update(
+    roomId: number,
+    changes: { name?: string; avatar?: RoomAvatar | null },
+  ): Promise<{ name: string; avatarUrl: string | null; renamed: boolean; pictureChanged: boolean }>;
+  /** The room's picture, if it has one and `viewerId` is a member or invited. */
+  findAvatar(roomId: number, viewerId: number): Promise<{ contentType: string; data: Buffer } | null>;
   /** False if they were a member already. */
   addMember(roomId: number, userId: number): Promise<boolean>;
   /** False if they weren't a member. */
@@ -56,7 +76,7 @@ export class DrizzleRoomsRepository implements RoomsRepository {
 
   async roomsOf(userId: number, onlyIds?: number[]) {
     return this.db
-      .select({ id: rooms.id, name: rooms.name, createdAt: rooms.createdAt })
+      .select({ id: rooms.id, name: rooms.name, avatarUrl: roomAvatarUrl, createdAt: rooms.createdAt })
       .from(rooms)
       .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
       .where(onlyIds ? inArray(rooms.id, onlyIds) : undefined);
@@ -100,10 +120,60 @@ export class DrizzleRoomsRepository implements RoomsRepository {
       .orderBy(asc(rooms.id));
   }
 
-  async create(name: string, ownerId: number) {
-    const [room] = await this.db.insert(rooms).values({ name, createdBy: ownerId }).returning({ id: rooms.id });
+  async create(name: string, ownerId: number, avatar?: RoomAvatar) {
+    const [room] = await this.db
+      .insert(rooms)
+      .values({ name, createdBy: ownerId, avatarUpdatedAt: avatar ? new Date() : null })
+      .returning({ id: rooms.id });
     await this.db.insert(roomMembers).values({ roomId: room!.id, userId: ownerId, role: "owner" });
+    if (avatar) await this.db.insert(roomAvatars).values({ roomId: room!.id, ...avatar });
     return room!.id;
+  }
+
+  async update(roomId: number, { name, avatar }: { name?: string; avatar?: RoomAvatar | null }) {
+    const [before] = await this.db
+      .select({ name: rooms.name, hasAvatar: sql<boolean>`${rooms.avatarUpdatedAt} is not null` })
+      .from(rooms)
+      .where(eq(rooms.id, roomId))
+      .for("update");
+    const renamed = name !== undefined && name !== before!.name;
+    // Removing a picture the room doesn't have changes nothing; a new one always does.
+    const pictureChanged = avatar === null ? before!.hasAvatar : avatar !== undefined;
+    if (avatar) {
+      await this.db
+        .insert(roomAvatars)
+        .values({ roomId, ...avatar })
+        .onConflictDoUpdate({ target: roomAvatars.roomId, set: avatar });
+    } else if (avatar === null) {
+      await this.db.delete(roomAvatars).where(eq(roomAvatars.roomId, roomId));
+    }
+    const set = {
+      ...(renamed ? { name } : {}),
+      ...(pictureChanged ? { avatarUpdatedAt: avatar ? new Date() : null } : {}),
+    };
+    const columns = { name: rooms.name, avatarUrl: roomAvatarUrl };
+    const [after] =
+      Object.keys(set).length > 0
+        ? await this.db.update(rooms).set(set).where(eq(rooms.id, roomId)).returning(columns)
+        : await this.db.select(columns).from(rooms).where(eq(rooms.id, roomId));
+    return { ...after!, renamed, pictureChanged };
+  }
+
+  async findAvatar(roomId: number, viewerId: number) {
+    const isMember = this.db
+      .select({ one: sql`1` })
+      .from(roomMembers)
+      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, viewerId)));
+    const isInvited = this.db
+      .select({ one: sql`1` })
+      .from(roomInvites)
+      .where(and(eq(roomInvites.roomId, roomId), eq(roomInvites.userId, viewerId)));
+    const [avatar] = await this.db
+      .select({ contentType: roomAvatars.contentType, data: roomAvatars.data })
+      .from(roomAvatars)
+      .where(and(eq(roomAvatars.roomId, roomId), or(exists(isMember), exists(isInvited))))
+      .limit(1);
+    return avatar ?? null;
   }
 
   async addMember(roomId: number, userId: number) {

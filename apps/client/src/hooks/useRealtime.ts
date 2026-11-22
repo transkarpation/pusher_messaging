@@ -15,6 +15,7 @@ import {
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
+  ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
   USER_UPDATED_EVENT,
   roomChannel,
@@ -31,6 +32,7 @@ import {
   type RoomInvitesEvent,
   type RoomMembersEvent,
   type RoomRemovedEvent,
+  type RoomUpdatedEvent,
   type TypingEvent,
   type User,
 } from "@pm/shared";
@@ -105,6 +107,7 @@ export function useRealtime(me: User) {
       },
       [ROOM_MEMBERS_EVENT]: (e: RoomMembersEvent) => rooms.setMembers(e.roomId, e.members),
       [ROOM_INVITES_EVENT]: (e: RoomInvitesEvent) => rooms.setInvites(e.roomId, e.invites),
+      [ROOM_UPDATED_EVENT]: (e: RoomUpdatedEvent) => rooms.setDetails(e),
     });
 
     /** Subscribes to rooms that appeared in the store, unsubscribes from those that left. */
