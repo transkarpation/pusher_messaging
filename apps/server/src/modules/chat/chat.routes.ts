@@ -99,6 +99,22 @@ export function roomsRoutes(
     res.status(201).json(await messages.send(actorOf(req), req.room!.id, text, attachmentIds));
   });
 
+  room.patch("/messages/:messageId", async (req, res) => {
+    const messageId = idParam(req.params.messageId, "Invalid message id");
+    const { text } = parse(updateMessageSchema, req.body);
+    res.json(await messages.edit(actorOf(req), req.room!.id, messageId, text));
+  });
+
+  room.delete("/messages/:messageId", async (req, res) => {
+    const messageId = idParam(req.params.messageId, "Invalid message id");
+    res.json(await messages.remove(actorOf(req), req.room!, messageId));
+  });
+
+  room.post("/receipts", async (req, res) => {
+    const input = parse(updateReceiptSchema, req.body);
+    res.json(await messages.advanceReceipt(actorOf(req), req.room!.id, input));
+  });
+
   /**
    * Uploads one file as the raw application/octet-stream body, its type in X-File-Type and
    * its name URI-encoded in X-File-Name; for recorded audio optionally X-Audio-Duration and
