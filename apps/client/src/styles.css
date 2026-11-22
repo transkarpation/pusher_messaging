@@ -373,6 +373,40 @@ button.ghost.danger:hover { color: var(--error); }
   border: 1px solid var(--border);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
 }
+/* Shown while scrolled up into the history; with a count when new messages arrived meanwhile. */
+.jump-latest {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 12px;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  animation: jump-latest-in 0.15s ease-out;
+}
+.jump-latest:hover { background: var(--surface); }
+.jump-latest.has-unseen {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.jump-latest-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.jump-latest-arrow { font-size: 18px; line-height: 1; }
+@keyframes jump-latest-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jump-latest { animation: none; }
+}
 .messages li.history-start {
   align-self: center;
   max-width: 90%;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -39,6 +39,9 @@ const merge = (a: Message[], b: Message[]) => {
   return [...byId.values()].sort((x, y) => y.id - x.id);
 };
 
+/** Within this distance (px) of the bottom the list counts as scrolled to the newest message. */
+const NEAR_BOTTOM_THRESHOLD = 80;
+
 export default function RoomScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const roomId = Number(id);
@@ -51,6 +54,13 @@ export default function RoomScreen() {
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const listRef = useRef<FlatList<Message>>(null);
+  /** False while the user has scrolled up into the history: shows the jump-to-latest button. */
+  const [atBottom, setAtBottom] = useState(true);
+  /** Read by the realtime handler, which is bound once per room. */
+  const atBottomRef = useRef(true);
+  /** Messages from others that arrived while scrolled up, shown as a count on that button. */
+  const [unseen, setUnseen] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +89,10 @@ export default function RoomScreen() {
         if (stopped) return;
         rt = conn;
         const channel = conn.subscribe(channelName);
-        channel.bind(MESSAGE_CREATED_EVENT, apply);
+        channel.bind(MESSAGE_CREATED_EVENT, (m: Message) => {
+          apply(m);
+          if (m.author.id !== me.id && !atBottomRef.current) setUnseen((n) => n + 1);
+        });
         channel.bind(MESSAGE_UPDATED_EVENT, apply);
         channel.bind(MESSAGE_DELETED_EVENT, apply);
         channel.bind(POLL_UPDATED_EVENT, (e: PollUpdatedEvent) =>
@@ -98,7 +111,9 @@ export default function RoomScreen() {
       rt?.channel(channelName)?.unbindAll();
       rt?.unsubscribe(channelName);
     };
-  }, [roomId]);
+  }, [roomId, me.id]);
+
+  const scrollToLatest = () => listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
   const loadOlder = async () => {
     const oldest = messages.at(-1)?.id;
@@ -124,6 +139,7 @@ export default function RoomScreen() {
       const message = await api.createMessage(roomId, { text: value });
       setMessages((prev) => merge(prev, [message]));
       setText("");
+      scrollToLatest();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -141,16 +157,42 @@ export default function RoomScreen() {
       {!loaded && !error ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
-        <FlatList
-          inverted
-          data={messages}
-          keyExtractor={(m) => String(m.id)}
-          contentContainerStyle={styles.list}
-          onEndReached={() => void loadOlder()}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={loadingOlder ? <ActivityIndicator style={styles.loading} /> : undefined}
-          renderItem={({ item }) => <MessageItem message={item} meId={me.id} />}
-        />
+        <View style={styles.listWrap}>
+          <FlatList
+            ref={listRef}
+            inverted
+            data={messages}
+            keyExtractor={(m) => String(m.id)}
+            contentContainerStyle={styles.list}
+            onEndReached={() => void loadOlder()}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={loadingOlder ? <ActivityIndicator style={styles.loading} /> : undefined}
+            renderItem={({ item }) => <MessageItem message={item} meId={me.id} />}
+            // The list is inverted, so "top" here is the bottom of the chat: new messages keep
+            // the view still while scrolled up, and follow along when already near the bottom.
+            maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: NEAR_BOTTOM_THRESHOLD }}
+            scrollEventThrottle={32}
+            onScroll={(e) => {
+              const near = e.nativeEvent.contentOffset.y <= NEAR_BOTTOM_THRESHOLD;
+              if (near === atBottomRef.current) return;
+              atBottomRef.current = near;
+              setAtBottom(near);
+              if (near) setUnseen(0);
+            }}
+          />
+          {!atBottom && (
+            <Pressable
+              style={({ pressed }) => [styles.jump, unseen > 0 && styles.jumpUnseen, pressed && styles.jumpPressed]}
+              onPress={scrollToLatest}
+              accessibilityRole="button"
+              accessibilityLabel={unseen > 0 ? `${unseen} new message${unseen === 1 ? "" : "s"}, jump to latest` : "Jump to latest message"}
+              hitSlop={8}
+            >
+              {unseen > 0 && <Text style={[styles.jumpLabel, styles.jumpTextUnseen]}>{unseen > 99 ? "99+" : unseen} new</Text>}
+              <Text style={[styles.jumpArrow, unseen > 0 && styles.jumpTextUnseen]}>↓</Text>
+            </Pressable>
+          )}
+        </View>
       )}
       {error && <Text style={styles.error}>{error}</Text>}
       <View style={styles.composer}>
@@ -229,7 +271,34 @@ function PollSummary({ poll }: { poll: Poll }) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   loading: { margin: 16 },
+  listWrap: { flex: 1 },
   list: { padding: 12, gap: 6 },
+  jump: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minWidth: 40,
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  jumpUnseen: { backgroundColor: colors.accent, borderColor: colors.accent },
+  jumpPressed: { opacity: 0.8 },
+  jumpLabel: { fontSize: 13, fontWeight: "600", color: colors.text },
+  jumpArrow: { fontSize: 18, lineHeight: 20, color: colors.text },
+  jumpTextUnseen: { color: "#fff" },
   bubble: { maxWidth: "80%", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, gap: 4 },
   own: { alignSelf: "flex-end", backgroundColor: colors.own, borderBottomRightRadius: 4 },
   other: { alignSelf: "flex-start", backgroundColor: colors.card, borderBottomLeftRadius: 4 },

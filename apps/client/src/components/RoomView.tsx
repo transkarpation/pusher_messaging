@@ -45,6 +45,9 @@ const CANCEL_DRAG_PX = 80;
 /** How close to the top of the list (px) scrolling has to get to load older messages. */
 const LOAD_OLDER_THRESHOLD = 120;
 
+/** Within this distance (px) of the bottom the list counts as scrolled to the newest message. */
+const NEAR_BOTTOM_THRESHOLD = 80;
+
 /** Rendered with `key={room.id}`, so local state resets when switching rooms. */
 export function RoomView({ room, me }: { room: Room; me: User }) {
   const { messages: allMessages, pending, receipts, loaded, error, reachedStart, loadingOlder, olderError } =
@@ -85,6 +88,10 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const fromBottom = useRef(0);
   /** First/last rendered message and pending count at the previous render, to tell prepends from appends. */
   const edges = useRef<{ first?: number; last?: number; pending: number }>({ pending: 0 });
+  /** False while the user has scrolled up into the history: shows the jump-to-latest button. */
+  const [atBottom, setAtBottom] = useState(true);
+  /** Messages from others that arrived while scrolled up, shown as a count on that button. */
+  const [unseen, setUnseen] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = room.members.some((m) => m.user.id === me.id && m.role === "owner");
@@ -111,7 +118,8 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   };
 
   // Older messages were added at the top: keep the same messages on screen.
-  // Anything else that changes the ends (new message, sent message, first load): show the newest.
+  // New messages from others while scrolled up into the history: stay put and count them.
+  // Anything else that changes the ends (own message, new message at the bottom, first load): show the newest.
   useLayoutEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -120,8 +128,15 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     const prev = edges.current;
     const prepended =
       prev.first !== undefined && first !== undefined && first < prev.first && last === prev.last && pending.length === prev.pending;
+    const wasNearBottom = fromBottom.current - el.clientHeight <= NEAR_BOTTOM_THRESHOLD;
+    const arrivedWhileScrolledUp =
+      prev.last !== undefined && last !== prev.last && pending.length === prev.pending && !wasNearBottom;
     if (prepended) el.scrollTop = el.scrollHeight - fromBottom.current;
-    else if (first !== prev.first || last !== prev.last || pending.length !== prev.pending) el.scrollTop = el.scrollHeight;
+    else if (arrivedWhileScrolledUp) {
+      el.scrollTop = el.scrollHeight - fromBottom.current;
+      const fresh = messages.filter((m) => m.id > prev.last! && m.author.id !== me.id).length;
+      if (fresh > 0) setUnseen((n) => n + fresh);
+    } else if (first !== prev.first || last !== prev.last || pending.length !== prev.pending) el.scrollTop = el.scrollHeight;
     edges.current = { first, last, pending: pending.length };
     fromBottom.current = el.scrollHeight - el.scrollTop;
     // Keeps loading while the list is too short to scroll (or all of a page was hidden as blocked).
@@ -132,7 +147,17 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     const el = listRef.current;
     if (!el) return;
     fromBottom.current = el.scrollHeight - el.scrollTop;
+    const near = fromBottom.current - el.clientHeight <= NEAR_BOTTOM_THRESHOLD;
+    setAtBottom(near);
+    if (near) setUnseen(0);
     loadOlderIfAtTop();
+  };
+
+  const scrollToLatest = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   };
 
   // Grow the composer with its content; CSS max-height caps it at 5 lines, after which it scrolls.
@@ -522,6 +547,24 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
                 </Fragment>
               ))}
             </ul>
+            {!atBottom && (
+              <button
+                type="button"
+                className={`jump-latest ${unseen > 0 ? "has-unseen" : ""}`}
+                onClick={scrollToLatest}
+                aria-label={unseen > 0 ? `${unseen} new message${unseen === 1 ? "" : "s"}, jump to latest` : "Jump to latest message"}
+                title="Jump to latest"
+              >
+                {unseen > 0 && (
+                  <span className="jump-latest-label">
+                    {unseen > 99 ? "99+" : unseen} new
+                  </span>
+                )}
+                <span className="jump-latest-arrow" aria-hidden="true">
+                  ↓
+                </span>
+              </button>
+            )}
           </div>
         )}
 
