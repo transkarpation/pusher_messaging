@@ -5,15 +5,15 @@
  *   pnpm db:seed --reset   delete the demo data and create it again (fresh timestamps)
  *   pnpm db:seed --clean   only delete the demo data
  *
- * Demo users are recognized by username (see src/lib/demo.ts, also shown on the /seeds page);
+ * Demo users are recognized by username (see src/modules/seeds/demo.ts, also shown on the /seeds page);
  * deleting them also deletes the rooms they created.
  */
 import { deflateSync } from "node:zlib";
 import { inArray } from "drizzle-orm";
 import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
-import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, type DemoUsername as Username } from "../src/lib/demo.js";
-import { hashPassword } from "../src/lib/password.js";
+import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, type DemoUsername as Username } from "../src/modules/seeds/demo.js";
+import { hashPassword } from "../src/modules/auth/password.js";
 
 /** A scripted line: who, what, and how many minutes after the previous line. */
 type Line =

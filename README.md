@@ -91,6 +91,26 @@ Demo users are recognized by username. Deleting them also deletes the rooms they
 | `pnpm db:seed` | creates demo users and conversations (see [Demo data](#demo-data)) |
 | `pnpm db:studio` | opens Drizzle Studio to browse the database |
 
+## Server structure
+
+`apps/server/src` is split by domain into modules. Each module has three layers:
+
+- **handlers** (`*.routes.ts`) parse and validate the request with the zod schemas from `@pm/shared`, call a service and send the response;
+- **services** (`*.service.ts`) hold the rules (who may do what) and publish realtime events. They throw `AppError`s (`shared/errors.ts`), which become `{ error }` responses with the right status;
+- **repositories** (`*.repository.ts`) are the only code that queries the database (Drizzle). Each is an interface plus a Drizzle implementation, so services can be tested with fakes.
+
+| Module | Owns |
+|---|---|
+| `users` | accounts, profiles, avatars |
+| `auth` | sessions, sign up / sign in, `requireAuth` |
+| `blocks` | the block list |
+| `chat` | rooms, members, invitations, messages, receipts, typing |
+| `realtime` | Pusher: publishing events (`RealtimePublisher`) and channel authorization |
+| `seeds` | demo accounts for `/seeds` |
+| `docs` | OpenAPI document and Swagger UI |
+
+Modules use each other only through the facade exported from their `index.ts`, never through another module's repository or tables. For example, `chat` stores people as ids and gets the `User`s from `UsersService`. Writes that span tables of one module run in one transaction through `Transactor` (`shared/transaction.ts`). `container.ts` creates and wires all repositories and services, `app.ts` mounts the routes, and `index.ts` starts the server.
+
 ## Real-time channels
 
 | Channel | Events |

@@ -13,7 +13,7 @@ import {
   updateProfileSchema,
   updateReceiptSchema,
 } from "@pm/shared";
-import { SESSION_COOKIE } from "./session.js";
+import { SESSION_COOKIE } from "../auth/index.js";
 
 /**
  * OpenAPI 3.1 description of the HTTP API, served at /api/openapi.json and shown by
