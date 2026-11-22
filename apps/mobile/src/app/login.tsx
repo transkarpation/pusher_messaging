@@ -61,7 +61,7 @@ export default function LoginScreen() {
           </Pressable>
           <Text style={styles.server}>Server: {API_URL}</Text>
         </View>
-        {__DEV__ && <DemoAccounts />}
+        <DemoAccounts />
       </ScrollView>
     </KeyboardAvoidingView>
   );

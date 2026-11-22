@@ -5,21 +5,24 @@ import { api } from "../lib/api";
 import { useSession } from "../lib/session";
 import { useStyles, type Colors } from "../lib/theme";
 
-type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; accounts: SeedAccount[] };
-
-/** Dev builds only: the demo accounts from `pnpm db:seed`, each signed in with one tap (like /seeds on the web). */
+/**
+ * The demo accounts from `pnpm db:seed`, each signed in with one tap (like /seeds on the web).
+ * Shown only when the server hands them out: a production server answers 404 and this renders nothing,
+ * in dev and release builds alike.
+ */
 export function DemoAccounts() {
   const styles = useStyles(makeStyles);
   const signIn = useSession((s) => s.signIn);
-  const [load, setLoad] = useState<Load>({ status: "loading" });
+  /** Null until loaded, and for good if the server doesn't list them (or can't be reached). */
+  const [accounts, setAccounts] = useState<SeedAccount[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api
       .getSeeds()
-      .then(({ accounts }) => setLoad({ status: "ready", accounts }))
-      .catch((e) => setLoad({ status: "error", message: (e as Error).message }));
+      .then((res) => setAccounts(res.accounts))
+      .catch(() => {}); // 404 on a production server; an unreachable server shows up in the sign-in form instead
   }, []);
 
   const logInAs = async (a: SeedAccount) => {
@@ -33,17 +36,15 @@ export function DemoAccounts() {
     }
   };
 
+  if (!accounts) return null;
+
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Demo accounts</Text>
-      {load.status === "loading" ? (
-        <ActivityIndicator />
-      ) : load.status === "error" ? (
-        <Text style={styles.error}>Couldn't load the demo accounts: {load.message}</Text>
-      ) : load.accounts.length === 0 ? (
+      {accounts.length === 0 ? (
         <Text style={styles.muted}>None yet. Create them with `pnpm db:seed`.</Text>
       ) : (
-        load.accounts.map((a) => (
+        accounts.map((a) => (
           <Pressable
             key={a.username}
             style={({ pressed }) => [styles.row, pressed && styles.pressed, busy !== null && busy !== a.username && styles.disabled]}
