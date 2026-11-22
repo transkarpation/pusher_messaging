@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import type Pusher from "pusher-js";
-import type { Channel, Members } from "pusher-js";
+import { MEMBER_ADDED, MEMBER_REMOVED, SUBSCRIBED, type Channel, type RealtimeClient } from "@pm/realtime-client";
 import {
   BLOCKS_UPDATED_EVENT,
   MESSAGE_CREATED_EVENT,
@@ -22,6 +21,7 @@ import {
   type Invitation,
   type InvitationRemovedEvent,
   type Message,
+  type PresenceMember,
   type Receipt,
   type Room,
   type RoomInvitesEvent,
@@ -31,12 +31,12 @@ import {
   type User,
 } from "@pm/shared";
 import { isWindowActive } from "../lib/activity";
-import { getPusher } from "../realtime";
+import { getRealtime } from "../realtime";
 import { useAuth } from "../store/auth";
 import { useBlocks } from "../store/blocks";
 import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
-import { useOnline, type PresenceMember } from "../store/online";
+import { useOnline } from "../store/online";
 import { useRooms } from "../store/rooms";
 import { useTyping } from "../store/typing";
 
@@ -48,20 +48,20 @@ function bindAll(channel: Channel, handlers: Handlers) {
 
 /**
  * Calls `resync` whenever the channel is subscribed again after a dropped connection
- * (pusher-js resubscribes every channel on reconnect). Events sent while offline are
+ * (the client resubscribes every channel on reconnect). Events sent while offline are
  * lost, so the state they would have changed has to be refetched; doing it once the
  * channel is live again means nothing published after the refetch can be missed.
  */
 function onResubscribed(channel: Channel, resync: () => void) {
   let subscribed = false;
-  channel.bind("pusher:subscription_succeeded", () => {
+  channel.bind(SUBSCRIBED, () => {
     if (subscribed) resync();
     subscribed = true;
   });
 }
 
 /**
- * Wires all Pusher channels into the stores:
+ * Wires all realtime channels into the stores:
  * - presence-online: who is online, profile updates
  * - private-user-{me}: being added to / removed from rooms, invitations, block list changes
  * - private-room-{id} for every room in the rooms store (kept in sync as it changes)
@@ -70,9 +70,7 @@ function onResubscribed(channel: Channel, resync: () => void) {
  */
 export function useRealtime(me: User) {
   useEffect(() => {
-    let cancelled = false;
-    let pusher: Pusher | null = null;
-    let unsubscribeStore: (() => void) | null = null;
+    const rt: RealtimeClient = getRealtime();
     const roomChannels = new Map<number, Channel>();
 
     const rooms = useRooms.getState();
@@ -104,72 +102,61 @@ export function useRealtime(me: User) {
 
     /** Subscribes to rooms that appeared in the store, unsubscribes from those that left. */
     const syncRoomChannels = () => {
-      if (!pusher) return;
       const ids = new Set(Object.keys(useRooms.getState().rooms).map(Number));
       for (const id of ids) {
         if (roomChannels.has(id)) continue;
-        const channel = pusher.subscribe(roomChannel(id));
+        const channel = rt.subscribe(roomChannel(id));
         bindAll(channel, roomHandlers(id));
         onResubscribed(channel, () => void messages.catchUp(id));
         roomChannels.set(id, channel);
       }
       for (const [id, channel] of roomChannels) {
         if (ids.has(id)) continue;
-        channel.unbind_all();
-        pusher.unsubscribe(roomChannel(id));
+        channel.unbindAll();
+        rt.unsubscribe(roomChannel(id));
         roomChannels.delete(id);
         messages.drop(id);
       }
     };
 
-    getPusher()
-      .then((p) => {
-        if (cancelled) return;
-        pusher = p;
+    bindAll(rt.subscribe(ONLINE_CHANNEL), {
+      [SUBSCRIBED]: (members: PresenceMember[] | undefined) => online.setMembers(members ?? []),
+      [MEMBER_ADDED]: (m: PresenceMember) => online.add(m),
+      [MEMBER_REMOVED]: (m: PresenceMember) => online.remove(m),
+      [USER_UPDATED_EVENT]: (u: User) => {
+        online.update(u);
+        rooms.updateUser(u);
+        messages.updateAuthor(u);
+        invitations.updateUser(u);
+        useAuth.getState().applyUpdate(u);
+      },
+    } satisfies Handlers);
 
-        bindAll(p.subscribe(ONLINE_CHANNEL), {
-          "pusher:subscription_succeeded": (members: Members) => online.setMembers(members),
-          "pusher:member_added": (m: PresenceMember) => online.add(m),
-          "pusher:member_removed": (m: PresenceMember) => online.remove(m),
-          [USER_UPDATED_EVENT]: (u: User) => {
-            online.update(u);
-            rooms.updateUser(u);
-            messages.updateAuthor(u);
-            invitations.updateUser(u);
-            useAuth.getState().applyUpdate(u);
-          },
-        } satisfies Handlers);
+    const mine = rt.subscribe(userChannel(me.id));
+    bindAll(mine, {
+      [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
+      [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
+      [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
+      [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
+      [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
+    } satisfies Handlers);
+    // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
+    onResubscribed(mine, () => {
+      void rooms.fetch();
+      void invitations.fetch();
+      void useBlocks.getState().fetch();
+    });
 
-        const mine = p.subscribe(userChannel(me.id));
-        bindAll(mine, {
-          [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
-          [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
-          [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
-          [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
-          [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
-        } satisfies Handlers);
-        // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
-        onResubscribed(mine, () => {
-          void rooms.fetch();
-          void invitations.fetch();
-          void useBlocks.getState().fetch();
-        });
-
-        syncRoomChannels();
-        unsubscribeStore = useRooms.subscribe((s, prev) => {
-          if (s.rooms !== prev.rooms) syncRoomChannels();
-        });
-      })
-      .catch((err) => console.error("Realtime unavailable:", err));
+    syncRoomChannels();
+    const unsubscribeStore = useRooms.subscribe((s, prev) => {
+      if (s.rooms !== prev.rooms) syncRoomChannels();
+    });
 
     return () => {
-      cancelled = true;
-      unsubscribeStore?.();
-      if (pusher) {
-        for (const name of [ONLINE_CHANNEL, userChannel(me.id), ...[...roomChannels.keys()].map(roomChannel)]) {
-          pusher.channel(name)?.unbind_all();
-          pusher.unsubscribe(name);
-        }
+      unsubscribeStore();
+      for (const name of [ONLINE_CHANNEL, userChannel(me.id), ...[...roomChannels.keys()].map(roomChannel)]) {
+        rt.channel(name)?.unbindAll();
+        rt.unsubscribe(name);
       }
       roomChannels.clear();
       online.reset();

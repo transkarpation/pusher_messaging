@@ -4,7 +4,7 @@ import { api } from "../api";
 /** Re-send "typing" at most this often while the user keeps typing. */
 const TYPING_THROTTLE_MS = 2000;
 
-/** Throttled "typing" notifications for one room, relayed by the server via Pusher. */
+/** Throttled "typing" notifications for one room, relayed by the server over the realtime connection. */
 export function useTypingNotifier(roomId: number) {
   const lastSentAt = useRef(0);
 

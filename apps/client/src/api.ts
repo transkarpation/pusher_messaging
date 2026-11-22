@@ -14,7 +14,6 @@ import {
   type InviteInput,
   type Message,
   type MessagesResponse,
-  type RealtimeConfig,
   type Receipt,
   type Room,
   type RoomInvite,
@@ -26,7 +25,7 @@ import {
   type UpdateReceiptInput,
   type User,
 } from "@pm/shared";
-import { getSocketId } from "./lib/socket";
+import { getSocketId } from "./realtime";
 import { voiceMetaOf } from "./lib/voice";
 
 export class ApiRequestError extends Error {
@@ -124,7 +123,6 @@ export const api = {
   acceptInvitation: (roomId: number) => request<Room>(`/invites/${roomId}/accept`, "POST"),
   declineInvitation: (roomId: number) => request<void>(`/invites/${roomId}/decline`, "POST"),
 
-  getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
 
   /** Public: demo accounts from `pnpm db:seed` with their passwords. */
   getSeeds: () => request<SeedsResponse>("/seeds"),

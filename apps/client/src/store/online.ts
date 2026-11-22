@@ -1,18 +1,12 @@
 import { create } from "zustand";
-import type { Members } from "pusher-js";
-import type { PresenceUserInfo, User } from "@pm/shared";
-
-export interface PresenceMember {
-  id: string;
-  info: PresenceUserInfo;
-}
+import type { PresenceMember, User } from "@pm/shared";
 
 const toUser = (m: PresenceMember): User => ({ id: Number(m.id), ...m.info });
 
 interface OnlineState {
   users: Record<number, User>;
-  /** Replaces the list with a full snapshot from `pusher:subscription_succeeded`. */
-  setMembers: (members: Members) => void;
+  /** Replaces the list with the full snapshot sent when the presence channel is (re)subscribed. */
+  setMembers: (members: PresenceMember[]) => void;
   add: (member: PresenceMember) => void;
   remove: (member: PresenceMember) => void;
   update: (user: User) => void;
@@ -24,10 +18,10 @@ export const useOnline = create<OnlineState>((set) => ({
 
   setMembers: (members) => {
     const users: Record<number, User> = {};
-    members.each((m: PresenceMember) => {
+    for (const m of members) {
       const u = toUser(m);
       users[u.id] = u;
-    });
+    }
     set({ users });
   },
 

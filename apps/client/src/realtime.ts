@@ -1,36 +1,23 @@
-import Pusher from "pusher-js";
-import { api } from "./api";
-import { setSocketId } from "./lib/socket";
+import { RealtimeClient } from "@pm/realtime-client";
+import { REALTIME_PATH } from "@pm/shared";
 
-let client: Promise<Pusher> | null = null;
+let client: RealtimeClient | null = null;
 
-/** Lazily creates a single Pusher connection using key/cluster served by the backend. */
-export function getPusher(): Promise<Pusher> {
-  client ??= api
-    .getRealtimeConfig()
-    .then(({ pusher }) => {
-      const p = new Pusher(pusher.key, {
-        cluster: pusher.cluster,
-        channelAuthorization: { endpoint: "/api/realtime/pusher/auth", transport: "ajax" },
-      });
-      p.connection.bind("state_change", ({ current }: { current: string }) => {
-        setSocketId(current === "connected" ? p.connection.socket_id : undefined);
-      });
-      p.connection.bind("message", (msg: { event: string; data: unknown }) => {
-        if (msg.event === "pusher:error") console.warn("Pusher error:", msg.data);
-      });
-      return p;
-    })
-    .catch((err) => {
-      client = null; // allow retry
-      throw err;
-    });
+/**
+ * The single realtime connection, opened on first use. Same origin as the page (Vite
+ * proxies it in development), so the browser authenticates it with the session cookie.
+ */
+export function getRealtime(): RealtimeClient {
+  client ??= new RealtimeClient({
+    url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${REALTIME_PATH}`,
+  });
   return client;
 }
 
-export async function disconnectPusher() {
-  const current = client;
+/** The current connection's socket id, attached to API calls so the server doesn't echo our own events. */
+export const getSocketId = () => client?.socketId;
+
+export function disconnectRealtime() {
+  client?.disconnect();
   client = null;
-  setSocketId(undefined);
-  if (current) (await current.catch(() => null))?.disconnect();
 }

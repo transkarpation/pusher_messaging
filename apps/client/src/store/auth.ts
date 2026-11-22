@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Credentials, User } from "@pm/shared";
 import { api } from "../api";
-import { disconnectPusher } from "../realtime";
+import { disconnectRealtime } from "../realtime";
 
 type Status = "idle" | "loading" | "ready";
 
@@ -60,7 +60,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
   logout: async () => {
     await api.logout();
-    await disconnectPusher();
+    disconnectRealtime();
     set({ user: null });
   },
 }));
