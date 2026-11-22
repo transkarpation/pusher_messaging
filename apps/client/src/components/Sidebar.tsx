@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { User } from "@pm/shared";
 import { PROFILE_PATH, navigate } from "../lib/router";
-import { deletedLabel, displayName, systemText } from "../lib/users";
+import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
 import { Avatar } from "./Avatar";
@@ -60,7 +60,7 @@ export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
               ? systemText(last, me.id)
               : last.deletedAt
               ? deletedLabel(last.author.id === me.id)
-              : `${last.author.id === me.id ? "You" : displayName(last.author)}: ${last.text}`
+              : `${last.author.id === me.id ? "You" : displayName(last.author)}: ${messagePreview(last)}`
             : `${room.members.length} member${room.members.length === 1 ? "" : "s"}`;
           return (
             <li key={room.id}>

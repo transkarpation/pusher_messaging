@@ -1,4 +1,5 @@
 import type { Message, User } from "@pm/shared";
+import { attachmentSummary } from "./files";
 
 export const displayName = (u: Pick<User, "name" | "username">) => u.name ?? u.username;
 
@@ -17,3 +18,7 @@ export function systemText(message: Message, meId: number): string | null {
       return null;
   }
 }
+
+/** The text of a regular message, or a summary of its files when it has no text. */
+export const messagePreview = (message: Pick<Message, "text" | "attachments">) =>
+  message.text || attachmentSummary(message.attachments);

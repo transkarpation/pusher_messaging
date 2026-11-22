@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENTS_PER_MESSAGE,
   AVATAR_CONTENT_TYPES,
   AVATAR_MAX_BYTES,
   MESSAGES_PAGE_SIZE,
@@ -87,11 +89,19 @@ const schemas: Record<string, Schema> = {
       "`text`: a regular message by `author`. System lines (`text` is \"\", `author` is who it's about): " +
       "`member_joined` accepted an invite, `member_left` left the room.",
   },
+  Attachment: object({
+    id: { type: "integer" },
+    name: { type: "string" },
+    size: { type: "integer", description: "Bytes" },
+    contentType: { type: "string" },
+    url: { type: "string", description: "`/api/rooms/{roomId}/attachments/{id}`" },
+  }),
   Message: object({
     id: { type: "integer" },
     roomId: { type: "integer" },
     kind: ref("MessageKind"),
-    text: { type: "string", description: "\"\" for system lines and deleted messages" },
+    text: { type: "string", description: "\"\" for system lines and deleted messages; may be \"\" when there are attachments" },
+    attachments: { ...arrayOf(ref("Attachment")), description: "In upload order; empty for system lines and deleted messages" },
     createdAt: isoDate(),
     editedAt: { ...nullable(isoDate()), description: "Set once the author edited the text" },
     deletedAt: { ...nullable(isoDate()), description: "Set once deleted; the message stays as a placeholder" },
@@ -374,7 +384,10 @@ const paths: Record<string, Record<string, Schema>> = {
     post: {
       tags: [tags.messages],
       summary: "Send a message",
-      description: "Broadcast to the room as `message:created` (not echoed to the sender's socket if `X-Socket-Id` is sent).",
+      description:
+        "Text, attachments uploaded beforehand with `POST /rooms/{roomId}/attachments`, or both. " +
+        `Up to ${ATTACHMENTS_PER_MESSAGE} attachments, each sent with one message only. ` +
+        "Broadcast to the room as `message:created` (not echoed to the sender's socket if `X-Socket-Id` is sent).",
       parameters: [roomId],
       requestBody: jsonBody(fromZod(createMessageSchema)),
       responses: { 201: json(ref("Message"), "The new message"), ...badRequest, ...unauthorized, ...roomNotFound },
@@ -384,7 +397,9 @@ const paths: Record<string, Record<string, Schema>> = {
     patch: {
       tags: [tags.messages],
       summary: "Edit your message",
-      description: "Only the author, only regular messages that aren't deleted. Broadcast as `message:updated`.",
+      description:
+        "Only the author, only regular messages that aren't deleted. The text may be emptied only if the message has attachments " +
+        "(the attachments themselves can't be changed). Broadcast as `message:updated`.",
       parameters: [roomId, idParam("messageId", "Message id")],
       requestBody: jsonBody(fromZod(updateMessageSchema)),
       responses: {
@@ -398,7 +413,9 @@ const paths: Record<string, Record<string, Schema>> = {
     delete: {
       tags: [tags.messages],
       summary: "Delete a message",
-      description: "The author, or the room owner for anyone's. It stays as a placeholder (`deletedAt` set, `text` \"\"). Broadcast as `message:deleted`.",
+      description:
+        "The author, or the room owner for anyone's. It stays as a placeholder (`deletedAt` set, `text` \"\", attachments deleted). " +
+        "Broadcast as `message:deleted`.",
       parameters: [roomId, idParam("messageId", "Message id")],
       responses: {
         200: json(ref("Message"), "The deleted message"),
@@ -406,6 +423,48 @@ const paths: Record<string, Record<string, Schema>> = {
         ...unauthorized,
         403: error("You can only delete your own messages"),
         404: error("Room or message not found (or it's already deleted or a system line)"),
+      },
+    },
+  },
+  "/rooms/{roomId}/attachments": {
+    post: {
+      tags: [tags.messages],
+      summary: "Upload an attachment",
+      description:
+        "The file is the raw body, sent as `application/octet-stream`; its type goes in `X-File-Type` and its name, " +
+        "URI-encoded, in `X-File-Name`. Then send its `id` in `attachmentIds` of `POST /rooms/{roomId}/messages`. " +
+        "Until then only you can download it; uploads never sent are cleaned up after a day.",
+      parameters: [
+        roomId,
+        { name: "X-File-Name", in: "header", description: "File name, URI-encoded", schema: { type: "string" } },
+        { name: "X-File-Type", in: "header", description: "MIME type, e.g. `image/png`", schema: { type: "string" } },
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: {
+        201: json(ref("Attachment"), "The upload, not yet attached to a message"),
+        400: error("The file is empty"),
+        ...unauthorized,
+        ...roomNotFound,
+        413: error(`The file is larger than ${ATTACHMENT_MAX_BYTES / 1024 / 1024} MB`),
+      },
+    },
+  },
+  "/rooms/{roomId}/attachments/{attachmentId}": {
+    get: {
+      tags: [tags.messages],
+      summary: "Download an attachment",
+      description:
+        "PNG, JPEG, GIF, WebP and AVIF images are served inline with their type; anything else as an " +
+        "`application/octet-stream` download with the original name.",
+      parameters: [roomId, idParam("attachmentId", "Attachment id")],
+      responses: {
+        200: { description: "The file", content: { "*/*": { schema: { type: "string", format: "binary" } } } },
+        400: error("Invalid attachment id"),
+        ...unauthorized,
+        404: error("No such room or attachment, or its message was deleted"),
       },
     },
   },

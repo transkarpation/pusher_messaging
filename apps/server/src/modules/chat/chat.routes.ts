@@ -1,5 +1,8 @@
-import { Router, type RequestHandler } from "express";
+import express, { Router, type RequestHandler } from "express";
 import {
+  ATTACHMENT_MAX_BYTES,
+  FILE_NAME_HEADER,
+  FILE_TYPE_HEADER,
   createMessageSchema,
   createRoomSchema,
   inviteSchema,
@@ -11,6 +14,7 @@ import {
 import { notFound } from "../../shared/errors.js";
 import { actorOf, idParam, parse } from "../../shared/http.js";
 import type { RequireAuth } from "../auth/index.js";
+import type { AttachmentsService } from "./attachments.service.js";
 import type { InvitesService } from "./invites.service.js";
 import type { MessagesService } from "./messages.service.js";
 import type { RoomAccess, RoomsService } from "./rooms.service.js";
@@ -37,10 +41,10 @@ const requireRoomMember =
 
 /** /api/rooms: rooms, members, invites to a room, typing, messages and receipts. */
 export function roomsRoutes(
-  services: { rooms: RoomsService; invites: InvitesService; messages: MessagesService },
+  services: { rooms: RoomsService; invites: InvitesService; messages: MessagesService; attachments: AttachmentsService },
   requireAuth: RequireAuth,
 ) {
-  const { rooms, invites, messages } = services;
+  const { rooms, invites, messages, attachments } = services;
   const router = Router();
   router.use(requireAuth);
 
@@ -89,8 +93,37 @@ export function roomsRoutes(
   });
 
   room.post("/messages", async (req, res) => {
-    const { text } = parse(createMessageSchema, req.body);
-    res.status(201).json(await messages.send(actorOf(req), req.room!.id, text));
+    const { text, attachmentIds } = parse(createMessageSchema, req.body);
+    res.status(201).json(await messages.send(actorOf(req), req.room!.id, text, attachmentIds));
+  });
+
+  /**
+   * Uploads one file as the raw application/octet-stream body, its type in X-File-Type and
+   * its name URI-encoded in X-File-Name. The returned id then goes in `attachmentIds` of POST /messages.
+   */
+  room.post(
+    "/attachments",
+    express.raw({ type: "application/octet-stream", limit: ATTACHMENT_MAX_BYTES }),
+    async (req, res) => {
+      const file = { data: req.body, name: req.get(FILE_NAME_HEADER), contentType: req.get(FILE_TYPE_HEADER) };
+      res.status(201).json(await attachments.upload(actorOf(req), req.room!.id, file));
+    },
+  );
+
+  /** Pictures are shown inline; anything else is always downloaded, never rendered by the browser. */
+  room.get("/attachments/:attachmentId", async (req, res) => {
+    const id = idParam(req.params.attachmentId, "Invalid attachment id");
+    const file = await attachments.download(req.user!.id, req.room!.id, id);
+    const disposition = `${file.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeRFC5987(file.name)}`;
+    res
+      .set({
+        "Content-Type": file.inline ? file.contentType : "application/octet-stream",
+        "Content-Disposition": disposition,
+        "Cache-Control": "private, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+      })
+      .send(file.data);
   });
 
   room.patch("/messages/:messageId", async (req, res) => {
@@ -111,6 +144,10 @@ export function roomsRoutes(
 
   return router;
 }
+
+/** A file name for `filename*=UTF-8''…` in Content-Disposition. */
+const encodeRFC5987 = (name: string) =>
+  encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
 /** /api/invites: the signed-in user's own invitations. */
 export function invitationsRoutes(invites: InvitesService, requireAuth: RequireAuth) {

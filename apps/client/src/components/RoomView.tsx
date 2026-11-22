@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
@@ -13,10 +15,12 @@ import type { Message, Room, User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
 import { dayKey, dayLabel } from "../lib/dates";
 import { deliveryOf } from "../lib/delivery";
-import { deletedLabel, displayName, systemText } from "../lib/users";
+import { addFiles } from "../lib/files";
+import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { EMPTY_ROOM, useMessages } from "../store/messages";
 import { useBlocks } from "../store/blocks";
 import { useRooms } from "../store/rooms";
+import { DraftAttachments, MessageAttachments, PendingAttachments } from "./Attachments";
 import { Avatar } from "./Avatar";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { EmojiPicker } from "./EmojiPicker";
@@ -49,6 +53,11 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const setActive = useRooms((s) => s.setActive);
 
   const [text, setText] = useState("");
+  /** Files picked for the next message. */
+  const [files, setFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showMembers, setShowMembers] = useState(false);
   /** The message being edited in the composer, plus the unsent draft to restore afterwards. */
   const [editing, setEditing] = useState<{ message: Message; draft: string } | null>(null);
@@ -149,6 +158,53 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     if (!editing) typing.onInput(e.target.value);
   };
 
+  const pickFiles = (picked: File[]) => {
+    if (picked.length === 0) return;
+    if (editing) {
+      setFileError("Files can't be added while editing a message");
+      return;
+    }
+    const result = addFiles(files, picked);
+    setFiles(result.files);
+    setFileError(result.error);
+    if (!isTouch()) inputRef.current?.focus();
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((list) => list.filter((_, i) => i !== index));
+    setFileError(null);
+  };
+
+  /** Pasted files (e.g. a screenshot) are attached; pasted text goes in as usual. */
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = [...e.clipboardData.files];
+    if (pasted.length === 0) return;
+    e.preventDefault();
+    pickFiles(pasted);
+  };
+
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
+  const dropHandlers = {
+    onDragEnter: (e: DragEvent) => {
+      if (hasFiles(e)) setDragging(true);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    onDragLeave: (e: DragEvent) => {
+      // Only when leaving the room view itself, not when moving between its children.
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+    },
+    onDrop: (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDragging(false);
+      pickFiles([...e.dataTransfer.files]);
+    },
+  };
+
   /** Puts the emoji at the caret (replacing any selection) and moves the caret after it. */
   const insertEmoji = (emoji: string) => {
     const el = inputRef.current;
@@ -191,9 +247,10 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const value = text.trim();
-    if (!value) return;
 
     if (editing) {
+      // The text may be emptied only when the message still has its files.
+      if (!value && editing.message.attachments.length === 0) return;
       if (value === editing.message.text) return stopEditing();
       setSaving(true);
       setEditError(null);
@@ -208,9 +265,12 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       return;
     }
 
+    if (!value && files.length === 0) return;
     typing.stop();
     setText("");
-    void send(room.id, value);
+    setFiles([]);
+    setFileError(null);
+    void send(room.id, value, files);
   };
 
   const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -271,6 +331,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       >
         {!own && avatarSlot(m, next)}
         {!own && <span className="message-author">{displayName(m.author)}</span>}
+        <MessageAttachments attachments={m.attachments} />
         {m.text}
         <span className="message-meta">
           {m.editedAt && (
@@ -310,7 +371,12 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
 
   return (
     <section className={`room ${showMembers ? "show-members" : ""}`}>
-      <div className="room-main">
+      <div className={`room-main ${dragging ? "dragging" : ""}`} {...dropHandlers}>
+        {dragging && (
+          <div className="drop-overlay" aria-hidden="true">
+            Drop files to attach
+          </div>
+        )}
         <header className="room-header">
           <button type="button" className="ghost icon back-btn" aria-label="Back to rooms" onClick={() => setActive(null)}>
             ←
@@ -359,12 +425,14 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
                 <Fragment key={p.tempId}>
                   {daySeparator(p.createdAt, (i === 0 ? messages.at(-1) : pending[i - 1])?.createdAt)}
                   <li className="own pending">
+                    <PendingAttachments files={p.files} />
                     {p.text}
                     <span className="message-meta">
                       {time(p.createdAt)}
                       <MessageStatus
                         info={{ status: p.status, deliveredCount: 0, readCount: 0 }}
                         onRetry={() => void retry(room.id, p.tempId)}
+                        error={p.error}
                       />
                     </span>
                   </li>
@@ -379,7 +447,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
           <div className="editing-bar">
             <div className="editing-preview">
               <span className="editing-label">Editing message</span>
-              <span className="muted small">{editing.message.text}</span>
+              <span className="muted small">{messagePreview(editing.message)}</span>
             </div>
             <button type="button" className="ghost icon" aria-label="Cancel editing" title="Cancel (Esc)" onClick={stopEditing}>
               ✕
@@ -387,7 +455,29 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
           </div>
         )}
         {editError && <p className="error">{editError}</p>}
+        {fileError && <p className="error">{fileError}</p>}
+        <DraftAttachments files={files} onRemove={removeFile} />
         <form onSubmit={(e) => void onSubmit(e)} className="composer">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              pickFiles([...(e.target.files ?? [])]);
+              e.target.value = ""; // so picking the same file again fires change
+            }}
+          />
+          <button
+            type="button"
+            className="ghost icon attach-toggle"
+            aria-label="Attach files"
+            title={editing ? "Files can't be changed while editing" : "Attach files"}
+            disabled={!!editing}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📎
+          </button>
           <textarea
             ref={inputRef}
             rows={1}
@@ -395,6 +485,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
             value={text}
             onChange={onTextChange}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             onBlur={editing ? undefined : typing.stop}
           />
           <EmojiPicker onPick={insertEmoji} />

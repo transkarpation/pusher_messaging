@@ -1,5 +1,8 @@
 import {
+  FILE_NAME_HEADER,
+  FILE_TYPE_HEADER,
   SOCKET_ID_HEADER,
+  type Attachment,
   type BlockInput,
   type BlocksEvent,
   type CreateMessageInput,
@@ -32,10 +35,10 @@ export class ApiRequestError extends Error {
   }
 }
 
-/** A Blob body is sent as is, with its own type; anything else as JSON. */
-async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+/** A Blob body is sent as is, with its own type (unless `extraHeaders` sets one); anything else as JSON. */
+async function request<T>(path: string, method = "GET", body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
   const isBlob = body instanceof Blob;
-  const headers: Record<string, string> = { "Content-Type": isBlob ? body.type : "application/json" };
+  const headers: Record<string, string> = { "Content-Type": isBlob ? body.type : "application/json", ...extraHeaders };
   const socketId = getSocketId();
   if (socketId) headers[SOCKET_ID_HEADER] = socketId;
 
@@ -89,6 +92,13 @@ export const api = {
   },
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
+  /** Uploads a file to attach to a message sent afterwards (see `CreateMessageInput.attachmentIds`). */
+  uploadAttachment: (roomId: number, file: File) =>
+    request<Attachment>(`${room(roomId)}/attachments`, "POST", file, {
+      "Content-Type": "application/octet-stream",
+      [FILE_TYPE_HEADER]: file.type || "application/octet-stream",
+      [FILE_NAME_HEADER]: encodeURIComponent(file.name),
+    }),
   updateMessage: (roomId: number, messageId: number, input: UpdateMessageInput) =>
     request<Message>(`${room(roomId)}/messages/${messageId}`, "PATCH", input),
   deleteMessage: (roomId: number, messageId: number) =>

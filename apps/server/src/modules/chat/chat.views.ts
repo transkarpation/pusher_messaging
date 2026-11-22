@@ -1,6 +1,8 @@
-import type { Invitation, Message, Room, RoomInvite, RoomMember, User } from "@pm/shared";
+import type { Attachment, Invitation, Message, Room, RoomInvite, RoomMember, User } from "@pm/shared";
 import type { BlocksService } from "../blocks/index.js";
 import type { UsersService } from "../users/index.js";
+import type { AttachmentsRepository } from "./attachments.repository.js";
+import { toAttachment } from "./attachments.service.js";
 import type { InvitesRepository } from "./invites.repository.js";
 import type { MessageRow, MessagesRepository } from "./messages.repository.js";
 import type { RoomsRepository } from "./rooms.repository.js";
@@ -14,6 +16,7 @@ export class ChatViews {
     private readonly rooms: RoomsRepository,
     private readonly messages: MessagesRepository,
     private readonly invites: InvitesRepository,
+    private readonly attachments: AttachmentsRepository,
     private readonly users: UsersService,
     private readonly blocks: BlocksService,
   ) {}
@@ -35,10 +38,13 @@ export class ChatViews {
       this.messages.userReceipts(userId, ids),
       this.invites.forRooms(ids),
     ]);
-    const users = await this.users.getByIds([
-      ...memberRows.map((m) => m.userId),
-      ...latestRows.map((m) => m.userId),
-      ...inviteRows.flatMap((i) => (i.invitedBy === null ? [i.userId] : [i.userId, i.invitedBy])),
+    const [users, files] = await Promise.all([
+      this.users.getByIds([
+        ...memberRows.map((m) => m.userId),
+        ...latestRows.map((m) => m.userId),
+        ...inviteRows.flatMap((i) => (i.invitedBy === null ? [i.userId] : [i.userId, i.invitedBy])),
+      ]),
+      this.attachmentsOf(latestRows),
     ]);
     const invites = this.toInvites(inviteRows, users);
 
@@ -53,7 +59,7 @@ export class ChatViews {
           .filter((m) => m.roomId === r.id)
           .flatMap((m) => withUser(users, m.userId, (user) => ({ role: m.role, user }))),
         invites: invites.filter((i) => i.roomId === r.id).map(({ roomId: _, ...invite }) => invite),
-        lastMessage: (last && this.toMessage(last, users)) ?? null,
+        lastMessage: (last && this.toMessage(last, users, files)) ?? null,
         unreadCount: unread.get(r.id) ?? 0,
         myReceipt: { deliveredUpTo: mine?.deliveredUpTo ?? 0, readUpTo: mine?.readUpTo ?? 0 },
       };
@@ -90,12 +96,28 @@ export class ChatViews {
     }));
   }
 
-  /** Attaches authors; `known` saves the lookup for users already at hand (e.g. the sender). */
+  /** Attaches authors and files; `known` saves the lookup for users already at hand (e.g. the sender). */
   async messageList(rows: MessageRow[], known: User[] = []): Promise<Message[]> {
     const users = new Map(known.map((u) => [u.id, u]));
     const missing = rows.map((r) => r.userId).filter((id) => !users.has(id));
-    if (missing.length > 0) for (const [id, u] of await this.users.getByIds(missing)) users.set(id, u);
-    return rows.flatMap((r) => this.toMessage(r, users) ?? []);
+    const [found, files] = await Promise.all([
+      missing.length > 0 ? this.users.getByIds(missing) : new Map<number, User>(),
+      this.attachmentsOf(rows),
+    ]);
+    for (const [id, u] of found) users.set(id, u);
+    return rows.flatMap((r) => this.toMessage(r, users, files) ?? []);
+  }
+
+  /** Attachments of the live regular messages among `rows`, by message id. */
+  private async attachmentsOf(rows: MessageRow[]): Promise<Map<number, Attachment[]>> {
+    const ids = rows.filter((r) => r.kind === "text" && !r.deletedAt).map((r) => r.id);
+    const byMessage = new Map<number, Attachment[]>();
+    for (const a of await this.attachments.forMessages(ids)) {
+      const list = byMessage.get(a.messageId!) ?? [];
+      list.push(toAttachment(a));
+      byMessage.set(a.messageId!, list);
+    }
+    return byMessage;
   }
 
   async message(row: MessageRow, known: User[] = []): Promise<Message> {
@@ -103,7 +125,7 @@ export class ChatViews {
     return message!;
   }
 
-  private toMessage(row: MessageRow, users: Map<number, User>): Message | undefined {
+  private toMessage(row: MessageRow, users: Map<number, User>, files: Map<number, Attachment[]>): Message | undefined {
     const author = users.get(row.userId);
     if (!author) return undefined; // the account was deleted mid-request
     const { userId: _, ...rest } = row;
@@ -112,6 +134,7 @@ export class ChatViews {
       createdAt: row.createdAt.toISOString(),
       editedAt: row.editedAt?.toISOString() ?? null,
       deletedAt: row.deletedAt?.toISOString() ?? null,
+      attachments: files.get(row.id) ?? [],
       author,
     };
   }

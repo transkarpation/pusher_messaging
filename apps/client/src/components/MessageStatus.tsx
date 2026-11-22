@@ -2,13 +2,13 @@ import type { DeliveryInfo } from "../lib/delivery";
 
 const plural = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 
-export function MessageStatus({ info, onRetry }: { info: DeliveryInfo; onRetry?: () => void }) {
+export function MessageStatus({ info, onRetry, error }: { info: DeliveryInfo; onRetry?: () => void; error?: string }) {
   switch (info.status) {
     case "sending":
       return <span className="status" title="Sending…">🕓</span>;
     case "failed":
       return (
-        <button type="button" className="status failed link" title="Not sent. Click to retry" onClick={onRetry}>
+        <button type="button" className="status failed link" title={`Not sent${error ? ` (${error})` : ""}. Click to retry`} onClick={onRetry}>
           ⚠ Retry
         </button>
       );

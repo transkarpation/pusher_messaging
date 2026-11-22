@@ -19,12 +19,36 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
-export const createMessageSchema = z.object({
-  text: z.string().trim().min(1, "Message is empty").max(2000, "Message is too long"),
-});
-export type CreateMessageInput = z.infer<typeof createMessageSchema>;
+const messageText = z.string().trim().max(2000, "Message is too long");
 
-export const updateMessageSchema = createMessageSchema;
+/**
+ * Max size of one attachment. POST /rooms/:id/attachments takes the file as the raw body,
+ * sent as application/octet-stream (so JSON and form files aren't parsed as request data),
+ * with its real type and name in the headers below.
+ */
+export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 10;
+/** Header carrying the attachment's file name, URI-encoded (headers are ASCII only). */
+export const FILE_NAME_HEADER = "X-File-Name";
+export const FILE_TYPE_HEADER = "X-File-Type";
+/** Attachment types shown inline as pictures; anything else is offered as a download. */
+export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"] as const;
+export const isInlineImage = (contentType: string) => (INLINE_IMAGE_TYPES as readonly string[]).includes(contentType);
+
+/** Text, attachments uploaded beforehand (POST /rooms/:id/attachments), or both. */
+export const createMessageSchema = z
+  .object({
+    text: messageText.default(""),
+    attachmentIds: z
+      .array(z.number().int().positive())
+      .max(ATTACHMENTS_PER_MESSAGE, `At most ${ATTACHMENTS_PER_MESSAGE} attachments per message`)
+      .default([]),
+  })
+  .refine((m) => m.text !== "" || m.attachmentIds.length > 0, { message: "Message is empty" });
+export type CreateMessageInput = z.input<typeof createMessageSchema>;
+
+/** The text may be emptied only if the message has attachments (checked by the server). */
+export const updateMessageSchema = z.object({ text: messageText });
 export type UpdateMessageInput = z.infer<typeof updateMessageSchema>;
 
 const userIds = z.array(z.number().int().positive()).max(100, "Too many users");
@@ -63,11 +87,25 @@ export const AVATAR_SIZE = 256;
  */
 export type MessageKind = "text" | "member_joined" | "member_left";
 
+/** A file attached to a message. */
+export interface Attachment {
+  id: number;
+  name: string;
+  /** Bytes. */
+  size: number;
+  contentType: string;
+  /** Members of the room can download it from here. */
+  url: string;
+}
+
 export interface Message {
   id: number;
   roomId: number;
   kind: MessageKind;
+  /** May be "" when the message has attachments. */
   text: string;
+  /** Upload order; empty for system lines and deleted messages. */
+  attachments: Attachment[];
   createdAt: string;
   /** Set once the author has edited the text. */
   editedAt: string | null;

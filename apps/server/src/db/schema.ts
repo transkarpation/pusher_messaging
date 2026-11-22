@@ -135,3 +135,37 @@ export const receipts = pgTable(
   },
   (t) => [primaryKey({ columns: [t.roomId, t.userId] })],
 );
+
+/**
+ * Files attached to messages. Uploaded first (`messageId` null, visible only to the
+ * uploader), then linked when the message is sent; deleted with the message.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: serial("id").primaryKey(),
+    roomId: integer("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade" }),
+    uploaderId: integer("uploader_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    messageId: integer("message_id").references(() => messages.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    contentType: varchar("content_type", { length: 127 }).notNull(),
+    size: integer("size").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("attachments_message_id_idx").on(t.messageId),
+    index("attachments_uploader_id_idx").on(t.uploaderId),
+  ],
+);
+
+/** Attachment bytes, kept apart so listing attachments never loads them. */
+export const attachmentData = pgTable("attachment_data", {
+  attachmentId: integer("attachment_id")
+    .primaryKey()
+    .references(() => attachments.id, { onDelete: "cascade" }),
+  data: bytea("data").notNull(),
+});

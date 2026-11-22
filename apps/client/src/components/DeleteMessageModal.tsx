@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Message, User } from "@pm/shared";
-import { displayName } from "../lib/users";
+import { displayName, messagePreview } from "../lib/users";
 import { useMessages } from "../store/messages";
 import { Modal } from "./Modal";
 
@@ -28,7 +28,7 @@ export function DeleteMessageModal({ message, me, onClose }: { message: Message;
         <p className="muted">
           {own ? "It will be deleted for everyone in the room." : `${displayName(message.author)}'s message will be deleted for everyone in the room.`}
         </p>
-        <blockquote className="quote">{message.text}</blockquote>
+        <blockquote className="quote">{messagePreview(message)}</blockquote>
         {error && <p className="error">{error}</p>}
         <div className="row modal-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={busy}>

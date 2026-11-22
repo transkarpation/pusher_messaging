@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  type Attachment,
   type Message,
   type Receipt,
   type User,
@@ -12,8 +13,13 @@ import { useRooms } from "./rooms";
 export interface PendingMessage {
   tempId: string;
   text: string;
+  files: File[];
+  /** Server copies of `files` uploaded so far (same index), so a retry doesn't upload them again. */
+  uploaded: (Attachment | undefined)[];
   createdAt: string;
   status: "sending" | "failed";
+  /** Why the last attempt failed. */
+  error?: string;
 }
 
 export interface RoomMessages {
@@ -61,7 +67,7 @@ interface MessagesState {
    * deletions made meanwhile. Rooms not loaded yet are left to `fetch`.
    */
   catchUp: (roomId: number) => Promise<void>;
-  send: (roomId: number, text: string) => Promise<void>;
+  send: (roomId: number, text: string, files?: File[]) => Promise<void>;
   retry: (roomId: number, tempId: string) => Promise<void>;
   /** Saves new text of the caller's own message. Throws on failure. */
   edit: (roomId: number, messageId: number, text: string) => Promise<void>;
@@ -126,18 +132,31 @@ export const useMessages = create<MessagesState>((set, get) => {
     return { messages: merge(r.messages, messages), receipts: next };
   };
 
-  const post = async (roomId: number, tempId: string, text: string) => {
+  const updatePending = (roomId: number, tempId: string, fn: (p: PendingMessage) => Partial<PendingMessage>) =>
+    patch(roomId, (r) => ({ pending: r.pending.map((p) => (p.tempId === tempId ? { ...p, ...fn(p) } : p)) }));
+
+  /** Uploads the files not uploaded yet, then creates the message. */
+  const post = async (roomId: number, tempId: string) => {
     try {
-      const msg = await api.createMessage(roomId, { text });
+      const item = get().byRoom[roomId]?.pending.find((p) => p.tempId === tempId);
+      if (!item) return;
+      const attachments = await Promise.all(
+        item.files.map(async (file, i) => {
+          const done = item.uploaded[i];
+          if (done) return done;
+          const attachment = await api.uploadAttachment(roomId, file);
+          updatePending(roomId, tempId, (p) => ({ uploaded: p.uploaded.map((u, j) => (j === i ? attachment : u)) }));
+          return attachment;
+        }),
+      );
+      const msg = await api.createMessage(roomId, { text: item.text, attachmentIds: attachments.map((a) => a.id) });
       patch(roomId, (r) => ({
         messages: merge(r.messages, [msg]),
         pending: r.pending.filter((p) => p.tempId !== tempId),
       }));
       useRooms.getState().onMessage(msg, { fromMe: true, viewing: true });
-    } catch {
-      patch(roomId, (r) => ({
-        pending: r.pending.map((p) => (p.tempId === tempId ? { ...p, status: "failed" } : p)),
-      }));
+    } catch (e) {
+      updatePending(roomId, tempId, () => ({ status: "failed", error: (e as Error).message }));
     }
   };
 
@@ -218,20 +237,25 @@ export const useMessages = create<MessagesState>((set, get) => {
       }
     },
 
-    send: async (roomId, text) => {
+    send: async (roomId, text, files = []) => {
       const tempId = `tmp-${++tempCounter}`;
-      const item: PendingMessage = { tempId, text, createdAt: new Date().toISOString(), status: "sending" };
+      const item: PendingMessage = {
+        tempId,
+        text,
+        files,
+        uploaded: files.map(() => undefined),
+        createdAt: new Date().toISOString(),
+        status: "sending",
+      };
       patch(roomId, (r) => ({ pending: [...r.pending, item] }));
-      await post(roomId, tempId, text);
+      await post(roomId, tempId);
     },
 
     retry: async (roomId, tempId) => {
       const item = get().byRoom[roomId]?.pending.find((p) => p.tempId === tempId);
       if (!item || item.status !== "failed") return;
-      patch(roomId, (r) => ({
-        pending: r.pending.map((p) => (p.tempId === tempId ? { ...p, status: "sending" } : p)),
-      }));
-      await post(roomId, tempId, item.text);
+      updatePending(roomId, tempId, () => ({ status: "sending", error: undefined }));
+      await post(roomId, tempId);
     },
 
     edit: async (roomId, messageId, text) => {
