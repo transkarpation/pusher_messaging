@@ -1,52 +1,43 @@
 import { create } from "zustand";
 
-export type Theme = "system" | "light" | "dark";
+export type Theme = "light" | "dark";
 
 const STORAGE_KEY = "theme";
-const THEMES: Theme[] = ["system", "light", "dark"];
 
-function readStored(): Theme {
+function readStored(): Theme | null {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    return THEMES.includes(value as Theme) ? (value as Theme) : "system";
+    return value === "light" || value === "dark" ? value : null;
   } catch {
-    return "system";
+    return null;
   }
 }
 
-/** "system" removes the attribute so the `prefers-color-scheme` media query decides. */
-function apply(theme: Theme) {
-  const root = document.documentElement;
-  if (theme === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", theme);
+function systemTheme(): Theme {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 interface ThemeState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  /** system → light → dark → system */
-  cycle: () => void;
+  /** light ↔ dark */
+  toggle: () => void;
 }
 
+// Until the user picks a theme, start from the OS preference. index.html leaves
+// data-theme unset in that case, so the `prefers-color-scheme` CSS matches this value.
 export const useTheme = create<ThemeState>((set, get) => ({
-  theme: readStored(),
+  theme: readStored() ?? systemTheme(),
 
   setTheme: (theme) => {
-    apply(theme);
+    document.documentElement.setAttribute("data-theme", theme);
     try {
-      if (theme === "system") localStorage.removeItem(STORAGE_KEY);
-      else localStorage.setItem(STORAGE_KEY, theme);
+      localStorage.setItem(STORAGE_KEY, theme);
     } catch {
       // Storage may be unavailable (private mode); the choice just won't persist.
     }
     set({ theme });
   },
 
-  cycle: () => {
-    const next = THEMES[(THEMES.indexOf(get().theme) + 1) % THEMES.length];
-    get().setTheme(next);
-  },
+  toggle: () => get().setTheme(get().theme === "dark" ? "light" : "dark"),
 }));
-
-// index.html applies the stored theme before first paint; this keeps the store in sync.
-apply(useTheme.getState().theme);

@@ -1,21 +1,19 @@
-import { useTheme, type Theme } from "../store/theme";
-
-const ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" };
-const LABEL: Record<Theme, string> = { system: "System", light: "Light", dark: "Dark" };
+import { useTheme } from "../store/theme";
 
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const theme = useTheme((s) => s.theme);
-  const cycle = useTheme((s) => s.cycle);
+  const toggle = useTheme((s) => s.toggle);
+  const label = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
 
   return (
     <button
       type="button"
       className={`ghost icon theme-toggle ${className}`}
-      onClick={cycle}
-      title={`Theme: ${LABEL[theme]} (click to change)`}
-      aria-label={`Theme: ${LABEL[theme]}. Click to change`}
+      onClick={toggle}
+      title={label}
+      aria-label={label}
     >
-      <span aria-hidden="true">{ICON[theme]}</span>
+      <span aria-hidden="true">{theme === "dark" ? "☾" : "☀"}</span>
     </button>
   );
 }
