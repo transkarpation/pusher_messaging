@@ -635,3 +635,83 @@ button.attach-toggle { font-size: 18px; padding: 8px 6px; }
   font-weight: 600;
   pointer-events: none;
 }
+
+/* ---- voice messages ------------------------------------------------------ */
+button.mic {
+  font-size: 18px;
+  padding: 8px 12px;
+  line-height: 20px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 0.15s;
+}
+button.mic.recording { background: var(--error); transform: scale(1.15); }
+.recording-bar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--accent);
+}
+.recording-bar.cancelling { color: var(--error); border-color: var(--error); }
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--error);
+  animation: recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes recording-pulse { 50% { opacity: 0.3; } }
+.recording-time { font-variant-numeric: tabular-nums; color: var(--text); }
+.live-waveform { flex: 1; min-width: 40px; height: 28px; }
+.recording-hint { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.recording-bar.cancelling .recording-hint { color: var(--error); }
+@media (max-width: 480px) { .recording-hint { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .recording-dot { animation: none; }
+  button.mic { transition: none; }
+}
+
+.voice-player { display: flex; align-items: center; gap: 8px; width: min(280px, 62vw); }
+button.voice-play {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 32px;
+}
+.waveform {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.waveform.seekable { cursor: pointer; touch-action: none; }
+.waveform span { flex: 1; min-width: 1px; max-width: 3px; border-radius: 2px; background: var(--muted); opacity: 0.45; }
+.waveform span.played { background: var(--accent); opacity: 1; }
+.voice-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
+
+.voice-draft {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 10px 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.voice-draft .voice-player { flex: 1; width: auto; }

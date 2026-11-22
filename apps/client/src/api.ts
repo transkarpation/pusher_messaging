@@ -1,4 +1,6 @@
 import {
+  AUDIO_DURATION_HEADER,
+  AUDIO_WAVEFORM_HEADER,
   FILE_NAME_HEADER,
   FILE_TYPE_HEADER,
   SOCKET_ID_HEADER,
@@ -25,6 +27,7 @@ import {
   type User,
 } from "@pm/shared";
 import { getSocketId } from "./lib/socket";
+import { voiceMetaOf } from "./lib/voice";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -92,13 +95,22 @@ export const api = {
   },
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
-  /** Uploads a file to attach to a message sent afterwards (see `CreateMessageInput.attachmentIds`). */
-  uploadAttachment: (roomId: number, file: File) =>
-    request<Attachment>(`${room(roomId)}/attachments`, "POST", file, {
+  /**
+   * Uploads a file to attach to a message sent afterwards (see `CreateMessageInput.attachmentIds`).
+   * A voice message recorded here also sends its length and waveform.
+   */
+  uploadAttachment: (roomId: number, file: File) => {
+    const voice = voiceMetaOf(file);
+    return request<Attachment>(`${room(roomId)}/attachments`, "POST", file, {
       "Content-Type": "application/octet-stream",
       [FILE_TYPE_HEADER]: file.type || "application/octet-stream",
       [FILE_NAME_HEADER]: encodeURIComponent(file.name),
-    }),
+      ...(voice && {
+        [AUDIO_DURATION_HEADER]: String(voice.durationMs),
+        [AUDIO_WAVEFORM_HEADER]: voice.waveform.join(","),
+      }),
+    });
+  },
   updateMessage: (roomId: number, messageId: number, input: UpdateMessageInput) =>
     request<Message>(`${room(roomId)}/messages/${messageId}`, "PATCH", input),
   deleteMessage: (roomId: number, messageId: number) =>

@@ -1,6 +1,8 @@
 import express, { Router, type RequestHandler } from "express";
 import {
   ATTACHMENT_MAX_BYTES,
+  AUDIO_DURATION_HEADER,
+  AUDIO_WAVEFORM_HEADER,
   FILE_NAME_HEADER,
   FILE_TYPE_HEADER,
   createMessageSchema,
@@ -99,50 +101,76 @@ export function roomsRoutes(
 
   /**
    * Uploads one file as the raw application/octet-stream body, its type in X-File-Type and
-   * its name URI-encoded in X-File-Name. The returned id then goes in `attachmentIds` of POST /messages.
+   * its name URI-encoded in X-File-Name; for recorded audio optionally X-Audio-Duration and
+   * X-Audio-Waveform. The returned id then goes in `attachmentIds` of POST /messages.
    */
   room.post(
     "/attachments",
     express.raw({ type: "application/octet-stream", limit: ATTACHMENT_MAX_BYTES }),
     async (req, res) => {
-      const file = { data: req.body, name: req.get(FILE_NAME_HEADER), contentType: req.get(FILE_TYPE_HEADER) };
+      const file = {
+        data: req.body,
+        name: req.get(FILE_NAME_HEADER),
+        contentType: req.get(FILE_TYPE_HEADER),
+        durationMs: req.get(AUDIO_DURATION_HEADER),
+        waveform: req.get(AUDIO_WAVEFORM_HEADER),
+      };
       res.status(201).json(await attachments.upload(actorOf(req), req.room!.id, file));
     },
   );
 
-  /** Pictures are shown inline; anything else is always downloaded, never rendered by the browser. */
+  /**
+   * Pictures and audio are served with their type; anything else is always downloaded, never
+   * rendered by the browser. Supports a single byte range, which Safari needs to play audio.
+   */
   room.get("/attachments/:attachmentId", async (req, res) => {
     const id = idParam(req.params.attachmentId, "Invalid attachment id");
     const file = await attachments.download(req.user!.id, req.room!.id, id);
     const disposition = `${file.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeRFC5987(file.name)}`;
-    res
-      .set({
-        "Content-Type": file.inline ? file.contentType : "application/octet-stream",
-        "Content-Disposition": disposition,
-        "Cache-Control": "private, max-age=31536000, immutable",
-        "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
-      })
-      .send(file.data);
-  });
-
-  room.patch("/messages/:messageId", async (req, res) => {
-    const messageId = idParam(req.params.messageId, "Invalid message id");
-    const { text } = parse(updateMessageSchema, req.body);
-    res.json(await messages.edit(actorOf(req), req.room!.id, messageId, text));
-  });
-
-  room.delete("/messages/:messageId", async (req, res) => {
-    const messageId = idParam(req.params.messageId, "Invalid message id");
-    res.json(await messages.remove(actorOf(req), req.room!, messageId));
-  });
-
-  room.post("/receipts", async (req, res) => {
-    const input = parse(updateReceiptSchema, req.body);
-    res.json(await messages.advanceReceipt(actorOf(req), req.room!.id, input));
+    res.set({
+      "Content-Type": file.inline ? file.contentType : "application/octet-stream",
+      "Content-Disposition": disposition,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "Accept-Ranges": "bytes",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    });
+    const range = parseRange(req.get("Range"), file.data.length);
+    if (range === "invalid") {
+      res.status(416).set("Content-Range", `bytes */${file.data.length}`).end();
+      return;
+    }
+    if (range) {
+      res
+        .status(206)
+        .set("Content-Range", `bytes ${range.start}-${range.end}/${file.data.length}`)
+        .send(file.data.subarray(range.start, range.end + 1));
+      return;
+    }
+    res.send(file.data);
   });
 
   return router;
+}
+
+/**
+ * A single `bytes=start-end` / `bytes=start-` / `bytes=-suffix` range within `size` bytes:
+ * null when there's no (usable) Range header, "invalid" when it can't be satisfied.
+ * Multiple ranges aren't supported; the whole file is sent instead.
+ */
+function parseRange(header: string | undefined, size: number): { start: number; end: number } | "invalid" | null {
+  const m = header?.match(/^bytes=(\d*)-(\d*)$/);
+  if (!m || (m[1] === "" && m[2] === "")) return null;
+  let start: number;
+  let end: number;
+  if (m[1] === "") {
+    start = Math.max(0, size - Number(m[2]));
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1);
+  }
+  return start > end || start >= size ? "invalid" : { start, end };
 }
 
 /** A file name for `filename*=UTF-8''…` in Content-Disposition. */

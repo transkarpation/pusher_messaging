@@ -1,4 +1,4 @@
-import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_MESSAGE, isInlineImage, type Attachment } from "@pm/shared";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_MESSAGE, VOICE_MESSAGE_NAME, isInlineAudio, isInlineImage, type Attachment } from "@pm/shared";
 
 /** "512 B", "34 KB", "2.4 MB". */
 export function formatSize(bytes: number): string {
@@ -7,9 +7,12 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, "")} MB`;
 }
 
-/** Short description of a message's files for previews: "📷 Photo", "📎 report.pdf", "📎 3 files". */
+/** Short description of a message's files for previews: "🎤 Voice message", "📷 Photo", "📎 report.pdf", "📎 3 files". */
 export function attachmentSummary(attachments: Pick<Attachment, "name" | "contentType">[]): string {
   if (attachments.length === 0) return "";
+  if (attachments.length === 1 && isInlineAudio(attachments[0]!.contentType) && attachments[0]!.name.startsWith(VOICE_MESSAGE_NAME)) {
+    return "🎤 Voice message";
+  }
   if (attachments.every((a) => isInlineImage(a.contentType))) {
     return attachments.length === 1 ? "📷 Photo" : `📷 ${attachments.length} photos`;
   }

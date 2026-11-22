@@ -49,9 +49,22 @@ export const ATTACHMENTS_PER_MESSAGE = 10;
 /** Header carrying the attachment's file name, URI-encoded (headers are ASCII only). */
 export const FILE_NAME_HEADER = "X-File-Name";
 export const FILE_TYPE_HEADER = "X-File-Type";
-/** Attachment types shown inline as pictures; anything else is offered as a download. */
+/** Optional, for audio: its length in ms, and its waveform as comma-separated levels (see `WAVEFORM_BARS`). */
+export const AUDIO_DURATION_HEADER = "X-Audio-Duration";
+export const AUDIO_WAVEFORM_HEADER = "X-Audio-Waveform";
+/** A voice message's waveform: this many bars, each 0–`WAVEFORM_MAX`, the loudest at the max. */
+export const WAVEFORM_BARS = 40;
+export const WAVEFORM_MAX = 100;
+/** Attachment types shown inline as pictures. */
 export const INLINE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"] as const;
 export const isInlineImage = (contentType: string) => (INLINE_IMAGE_TYPES as readonly string[]).includes(contentType);
+/** Attachment types played inline (voice messages and other audio). */
+export const INLINE_AUDIO_TYPES = ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/aac", "audio/wav"] as const;
+export const isInlineAudio = (contentType: string) => (INLINE_AUDIO_TYPES as readonly string[]).includes(contentType);
+/** Whether the server serves an attachment with its own type; anything else is only offered as a download. */
+export const isInlineMedia = (contentType: string) => isInlineImage(contentType) || isInlineAudio(contentType);
+/** Name given to recorded voice messages (plus an extension for the format). */
+export const VOICE_MESSAGE_NAME = "Voice message";
 
 /** Text, attachments uploaded beforehand (POST /rooms/:id/attachments), or both. */
 export const createMessageSchema = z
@@ -114,6 +127,10 @@ export interface Attachment {
   contentType: string;
   /** Members of the room can download it from here. */
   url: string;
+  /** Audio recorded in the app (voice messages): length in ms, or null if unknown. */
+  durationMs: number | null;
+  /** Audio recorded in the app: `WAVEFORM_BARS` levels, each 0–`WAVEFORM_MAX`; null otherwise. */
+  waveform: number[] | null;
 }
 
 export interface Message {

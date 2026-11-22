@@ -11,6 +11,8 @@ export interface AttachmentRow {
   name: string;
   contentType: string;
   size: number;
+  durationMs: number | null;
+  waveform: number[] | null;
 }
 
 const attachmentColumns = {
@@ -20,6 +22,8 @@ const attachmentColumns = {
   name: attachments.name,
   contentType: attachments.contentType,
   size: attachments.size,
+  durationMs: attachments.durationMs,
+  waveform: attachments.waveform,
 };
 
 export interface NewAttachment {
@@ -27,6 +31,8 @@ export interface NewAttachment {
   uploaderId: number;
   name: string;
   contentType: string;
+  durationMs: number | null;
+  waveform: number[] | null;
   data: Buffer;
 }
 

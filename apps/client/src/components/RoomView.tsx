@@ -13,6 +13,7 @@ import {
 } from "react";
 import type { Message, Room, User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
+import { useVoiceRecorder, voiceSupported } from "../hooks/useVoiceRecorder";
 import { dayKey, dayLabel } from "../lib/dates";
 import { deliveryOf } from "../lib/delivery";
 import { addFiles } from "../lib/files";
@@ -26,10 +27,18 @@ import { DeleteMessageModal } from "./DeleteMessageModal";
 import { EmojiPicker } from "./EmojiPicker";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
+import { RecordingBar } from "./RecordingBar";
+import { VoiceDraft } from "./VoiceDraft";
 import { Spinner } from "./Spinner";
 import { TypingIndicator } from "./TypingIndicator";
 
 const isTouch = () => window.matchMedia("(pointer: coarse)").matches;
+
+/** Recording stops at this length; the voice message then waits to be sent like any other. */
+const VOICE_MAX_MS = 5 * 60 * 1000;
+
+/** Dragging the pointer this far left of where the microphone was pressed cancels the recording. */
+const CANCEL_DRAG_PX = 80;
 
 /** How close to the top of the list (px) scrolling has to get to load older messages. */
 const LOAD_OLDER_THRESHOLD = 120;
@@ -58,6 +67,8 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canRecord = useMemo(voiceSupported, []);
+  const voice = useVoiceRecorder({ maxMs: VOICE_MAX_MS, onLimit: () => void finishVoice(true) });
   const [showMembers, setShowMembers] = useState(false);
   /** The message being edited in the composer, plus the unsent draft to restore afterwards. */
   const [editing, setEditing] = useState<{ message: Message; draft: string } | null>(null);
@@ -204,6 +215,67 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       pickFiles([...e.dataTransfer.files]);
     },
   };
+
+  /** The microphone is pressed (pointer or keyboard); recording lasts as long as it is. */
+  const holding = useRef<{ x: number } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  /** A finished recording the user hasn't sent or deleted yet. */
+  const [voiceDraft, setVoiceDraft] = useState<File | null>(null);
+  const sendVoiceRef = useRef<HTMLButtonElement>(null);
+
+  /** Stops recording; `keep` keeps it as a draft to listen to and send, otherwise it's discarded. */
+  async function finishVoice(keep: boolean) {
+    holding.current = null;
+    setCancelling(false);
+    const file = await voice.stop(keep);
+    if (file) {
+      setVoiceDraft(file);
+      // So Enter sends it right away.
+      requestAnimationFrame(() => sendVoiceRef.current?.focus());
+    }
+  }
+
+  const sendVoiceDraft = () => {
+    if (!voiceDraft) return;
+    void send(room.id, "", [voiceDraft]);
+    setVoiceDraft(null);
+    if (!isTouch()) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const deleteVoiceDraft = () => {
+    setVoiceDraft(null);
+    if (!isTouch()) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const beginHold = async (x: number) => {
+    if (holding.current) return;
+    holding.current = { x };
+    setCancelling(false);
+    voice.clearError();
+    const started = await voice.start();
+    // Released while the browser was still asking for the microphone (e.g. the first time).
+    if (started && !holding.current) await voice.stop(false);
+  };
+
+  const endHold = () => {
+    if (!holding.current) return;
+    void finishVoice(!cancelling);
+  };
+
+  // Esc cancels a recording, or deletes a finished one.
+  useEffect(() => {
+    if (voice.state === "idle" && !voiceDraft) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (voice.state !== "idle") void finishVoice(false);
+      else deleteVoiceDraft();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [voice.state, voiceDraft]);
+
+  /** Nothing typed or attached: the Send button turns into the microphone. */
+  const showMic = canRecord && !editing && !voiceDraft && text.trim() === "" && files.length === 0;
 
   /** Puts the emoji at the caret (replacing any selection) and moves the caret after it. */
   const insertEmoji = (emoji: string) => {
@@ -456,6 +528,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
         )}
         {editError && <p className="error">{editError}</p>}
         {fileError && <p className="error">{fileError}</p>}
+        {voice.error && <p className="error">{voice.error}</p>}
         <DraftAttachments files={files} onRemove={removeFile} />
         <form onSubmit={(e) => void onSubmit(e)} className="composer">
           <input
@@ -468,30 +541,75 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
               e.target.value = ""; // so picking the same file again fires change
             }}
           />
-          <button
-            type="button"
-            className="ghost icon attach-toggle"
-            aria-label="Attach files"
-            title={editing ? "Files can't be changed while editing" : "Attach files"}
-            disabled={!!editing}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            📎
-          </button>
-          <textarea
-            ref={inputRef}
-            rows={1}
-            placeholder={`Message ${room.name}`}
-            value={text}
-            onChange={onTextChange}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            onBlur={editing ? undefined : typing.stop}
-          />
-          <EmojiPicker onPick={insertEmoji} />
-          <button type="submit" disabled={saving}>
-            {editing ? "Save" : "Send"}
-          </button>
+          {voiceDraft ? (
+            <VoiceDraft file={voiceDraft} onDelete={deleteVoiceDraft} />
+          ) : voice.state === "idle" ? (
+            <>
+              <button
+                type="button"
+                className="ghost icon attach-toggle"
+                aria-label="Attach files"
+                title={editing ? "Files can't be changed while editing" : "Attach files"}
+                disabled={!!editing}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                📎
+              </button>
+              <textarea
+                ref={inputRef}
+                rows={1}
+                placeholder={`Message ${room.name}`}
+                value={text}
+                onChange={onTextChange}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                onBlur={editing ? undefined : typing.stop}
+              />
+              <EmojiPicker onPick={insertEmoji} />
+            </>
+          ) : (
+            <RecordingBar recording={voice.live} cancelling={cancelling} />
+          )}
+          {voiceDraft ? (
+            <button ref={sendVoiceRef} type="button" onClick={sendVoiceDraft}>
+              Send
+            </button>
+          ) : showMic || voice.state !== "idle" ? (
+            // Stays mounted while recording: it holds the pointer capture until release.
+            <button
+              type="button"
+              className={`mic ${voice.state !== "idle" ? "recording" : ""}`}
+              aria-label="Hold to record a voice message"
+              title="Hold to record a voice message"
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                void beginHold(e.clientX);
+              }}
+              onPointerMove={(e) => {
+                if (holding.current) setCancelling(holding.current.x - e.clientX > CANCEL_DRAG_PX);
+              }}
+              onPointerUp={endHold}
+              onPointerCancel={() => void finishVoice(false)}
+              onKeyDown={(e) => {
+                if ((e.key === " " || e.key === "Enter") && !e.repeat) {
+                  e.preventDefault();
+                  void beginHold(0);
+                }
+              }}
+              onKeyUp={(e) => {
+                if (e.key === " " || e.key === "Enter") endHold();
+              }}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              🎤
+            </button>
+          ) : (
+            <button type="submit" disabled={saving}>
+              {editing ? "Save" : "Send"}
+            </button>
+          )}
         </form>
       </div>
 

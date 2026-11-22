@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { isInlineImage, type Attachment } from "@pm/shared";
+import { isInlineAudio, isInlineImage, type Attachment } from "@pm/shared";
 import { formatSize } from "../lib/files";
+import { voiceMetaOf } from "../lib/voice";
+import { VoicePlayer } from "./VoicePlayer";
 
 interface Item {
   key: string | number;
@@ -8,12 +10,15 @@ interface Item {
   size: number;
   contentType: string;
   url: string;
+  durationMs: number | null;
+  waveform: number[] | null;
 }
 
-/** Pictures as thumbnails (open full size in a new tab), other files as download cards. */
+/** Pictures as thumbnails (open full size in a new tab), audio as players, other files as download cards. */
 function AttachmentList({ items }: { items: Item[] }) {
   const images = items.filter((i) => isInlineImage(i.contentType));
-  const files = items.filter((i) => !isInlineImage(i.contentType));
+  const audio = items.filter((i) => isInlineAudio(i.contentType));
+  const files = items.filter((i) => !isInlineImage(i.contentType) && !isInlineAudio(i.contentType));
   return (
     <div className="attachments" onClick={(e) => e.stopPropagation()}>
       {images.length > 0 && (
@@ -25,6 +30,9 @@ function AttachmentList({ items }: { items: Item[] }) {
           ))}
         </div>
       )}
+      {audio.map((i) => (
+        <VoicePlayer key={i.key} src={i.url} name={i.name} durationMs={i.durationMs} waveform={i.waveform} />
+      ))}
       {files.map((i) => (
         <a key={i.key} className="attachment-file" href={i.url} download={i.name} title={`Download ${i.name}`}>
           <span className="attachment-icon" aria-hidden="true">
@@ -70,6 +78,8 @@ export function PendingAttachments({ files }: { files: File[] }) {
         size: f.size,
         contentType: f.type,
         url: urls[i]!,
+        durationMs: voiceMetaOf(f)?.durationMs ?? null,
+        waveform: voiceMetaOf(f)?.waveform ?? null,
       }))}
     />
   );

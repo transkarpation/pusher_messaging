@@ -2,6 +2,7 @@ import {
   customType,
   index,
   integer,
+  smallint,
   pgEnum,
   pgTable,
   primaryKey,
@@ -154,6 +155,9 @@ export const attachments = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     contentType: varchar("content_type", { length: 127 }).notNull(),
     size: integer("size").notNull(),
+    /** Audio recorded in the app: length and waveform, sent by the client with the upload. */
+    durationMs: integer("duration_ms"),
+    waveform: smallint("waveform").array(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

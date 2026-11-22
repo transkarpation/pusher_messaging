@@ -78,6 +78,13 @@
       "when": 1795340272122,
       "tag": "0010_lame_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795342941842,
+      "tag": "0011_safe_santa_claus",
+      "breakpoints": true
     }
   ]
 }

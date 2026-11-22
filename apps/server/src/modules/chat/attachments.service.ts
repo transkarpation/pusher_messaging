@@ -1,4 +1,11 @@
-import { ATTACHMENT_MAX_BYTES, isInlineImage, type Attachment } from "@pm/shared";
+import {
+  ATTACHMENT_MAX_BYTES,
+  WAVEFORM_BARS,
+  WAVEFORM_MAX,
+  isInlineAudio,
+  isInlineMedia,
+  type Attachment,
+} from "@pm/shared";
 import { badRequest, notFound } from "../../shared/errors.js";
 import type { Actor } from "../../shared/http.js";
 import type { AttachmentRow, AttachmentsRepository } from "./attachments.repository.js";
@@ -14,7 +21,23 @@ export const toAttachment = (a: AttachmentRow): Attachment => ({
   size: a.size,
   contentType: a.contentType,
   url: attachmentUrl(a),
+  durationMs: a.durationMs,
+  waveform: a.waveform,
 });
+
+/** A duration header: whole ms up to an hour, else null. */
+function parseDuration(raw: string | undefined): number | null {
+  const ms = Number(raw);
+  return raw && Number.isInteger(ms) && ms > 0 && ms <= 60 * 60 * 1000 ? ms : null;
+}
+
+/** A waveform header: exactly `WAVEFORM_BARS` integers 0–`WAVEFORM_MAX`, else null. */
+function parseWaveform(raw: string | undefined): number[] | null {
+  if (!raw) return null;
+  const levels = raw.split(",").map(Number);
+  const valid = levels.length === WAVEFORM_BARS && levels.every((l) => Number.isInteger(l) && l >= 0 && l <= WAVEFORM_MAX);
+  return valid ? levels : null;
+}
 
 /** A file name safe to store and show: no path, no control characters, at most 255 characters. */
 export function cleanFileName(raw: string | undefined): string {
@@ -43,24 +66,33 @@ export class AttachmentsService {
   constructor(private readonly attachments: AttachmentsRepository) {}
 
   /** Stores an upload; it's linked to a message when one is sent with its id. */
-  async upload(actor: Actor, roomId: number, file: { data: unknown; name?: string; contentType?: string }): Promise<Attachment> {
+  /** `durationMs` and `waveform` (raw header values) are kept for audio only, when valid. */
+  async upload(
+    actor: Actor,
+    roomId: number,
+    file: { data: unknown; name?: string; contentType?: string; durationMs?: string; waveform?: string },
+  ): Promise<Attachment> {
     if (!Buffer.isBuffer(file.data) || file.data.length === 0) throw badRequest("The file is empty");
     if (file.data.length > ATTACHMENT_MAX_BYTES) throw badRequest("The file is too large");
     await this.attachments.deleteUnsent(actor.user.id, new Date(Date.now() - UNSENT_TTL_MS));
+    const contentType = cleanContentType(file.contentType);
+    const audio = isInlineAudio(contentType);
     const row = await this.attachments.create({
       roomId,
       uploaderId: actor.user.id,
       name: cleanFileName(file.name),
-      contentType: cleanContentType(file.contentType),
+      contentType,
+      durationMs: audio ? parseDuration(file.durationMs) : null,
+      waveform: audio ? parseWaveform(file.waveform) : null,
       data: file.data,
     });
     return toAttachment(row);
   }
 
-  /** The file, with whether it's safe to show inline (a raster image) rather than download. */
+  /** The file, with whether it's safe to show inline (a raster image or audio) rather than download. */
   async download(viewerId: number, roomId: number, id: number) {
     const file = await this.attachments.findVisible(roomId, id, viewerId);
     if (!file) throw notFound("Attachment not found");
-    return { ...file, inline: isInlineImage(file.contentType) };
+    return { ...file, inline: isInlineMedia(file.contentType) };
   }
 }

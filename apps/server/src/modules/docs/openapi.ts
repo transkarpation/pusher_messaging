@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   ATTACHMENT_MAX_BYTES,
   ATTACHMENTS_PER_MESSAGE,
+  WAVEFORM_BARS,
+  WAVEFORM_MAX,
   AVATAR_CONTENT_TYPES,
   AVATAR_MAX_BYTES,
   MESSAGES_PAGE_SIZE,
@@ -100,6 +102,11 @@ const schemas: Record<string, Schema> = {
     size: { type: "integer", description: "Bytes" },
     contentType: { type: "string" },
     url: { type: "string", description: "`/api/rooms/{roomId}/attachments/{id}`" },
+    durationMs: { ...nullable({ type: "integer" }), description: "Recorded audio (voice messages): length in ms" },
+    waveform: {
+      ...nullable(arrayOf({ type: "integer", minimum: 0, maximum: WAVEFORM_MAX })),
+      description: `Recorded audio: ${WAVEFORM_BARS} levels, the loudest at ${WAVEFORM_MAX}`,
+    },
   }),
   Message: object({
     id: { type: "integer" },
@@ -455,6 +462,18 @@ const paths: Record<string, Record<string, Schema>> = {
         roomId,
         { name: "X-File-Name", in: "header", description: "File name, URI-encoded", schema: { type: "string" } },
         { name: "X-File-Type", in: "header", description: "MIME type, e.g. `image/png`", schema: { type: "string" } },
+        {
+          name: "X-Audio-Duration",
+          in: "header",
+          description: "Audio only, optional: length in ms (stored as `durationMs`)",
+          schema: { type: "integer" },
+        },
+        {
+          name: "X-Audio-Waveform",
+          in: "header",
+          description: `Audio only, optional: ${WAVEFORM_BARS} comma-separated levels 0–${WAVEFORM_MAX} (stored as \`waveform\`; ignored if malformed)`,
+          schema: { type: "string" },
+        },
       ],
       requestBody: {
         required: true,
@@ -474,14 +493,17 @@ const paths: Record<string, Record<string, Schema>> = {
       tags: [tags.messages],
       summary: "Download an attachment",
       description:
-        "PNG, JPEG, GIF, WebP and AVIF images are served inline with their type; anything else as an " +
-        "`application/octet-stream` download with the original name.",
+        "PNG, JPEG, GIF, WebP and AVIF images and WebM, Ogg, MP4, MPEG, AAC and WAV audio (voice messages) are served " +
+        "inline with their type; anything else as an `application/octet-stream` download with the original name. " +
+        "A single `Range: bytes=…` is supported (206).",
       parameters: [roomId, idParam("attachmentId", "Attachment id")],
       responses: {
         200: { description: "The file", content: { "*/*": { schema: { type: "string", format: "binary" } } } },
+        206: { description: "The requested byte range" },
         400: error("Invalid attachment id"),
         ...unauthorized,
         404: error("No such room or attachment, or its message was deleted"),
+        416: { description: "The range is outside the file" },
       },
     },
   },
