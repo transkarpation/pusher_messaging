@@ -1,4 +1,4 @@
-import type { CookieOptions, RequestHandler } from "express";
+import type { CookieOptions, Request, RequestHandler } from "express";
 import type { User } from "@pm/shared";
 import { unauthorized } from "../../shared/errors.js";
 import type { AuthService } from "./auth.service.js";
@@ -22,11 +22,21 @@ export const sessionCookieOptions: CookieOptions = {
 
 export type RequireAuth = RequestHandler;
 
-/** Loads the current user from the session cookie, if any. */
+/**
+ * The session token of a request: `Authorization: Bearer <token>` (mobile and other
+ * non-browser clients), else the session cookie (the web client).
+ */
+export const sessionTokenOf = (req: Request): string | undefined => {
+  const header = req.get("Authorization");
+  const bearer = header?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  return bearer ?? req.cookies?.[SESSION_COOKIE];
+};
+
+/** Loads the current user from the session token, if any. */
 export const loadUser =
   (auth: AuthService): RequestHandler =>
   async (req, _res, next) => {
-    const token: string | undefined = req.cookies?.[SESSION_COOKIE];
+    const token = sessionTokenOf(req);
     if (token) req.user = (await auth.authenticate(token)) ?? undefined;
     next();
   };

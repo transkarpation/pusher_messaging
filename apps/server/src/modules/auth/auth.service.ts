@@ -7,7 +7,7 @@ import type { SessionsRepository } from "./sessions.repository.js";
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** A new session: the token goes to the client (in a cookie); only its hash is stored. */
+/** A new session: the token goes to the client (in a cookie, or as a Bearer token); only its hash is stored. */
 export interface Session {
   user: User;
   token: string;

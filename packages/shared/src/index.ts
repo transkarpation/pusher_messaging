@@ -14,6 +14,24 @@ export const credentialsSchema = z.object({
 });
 export type Credentials = z.infer<typeof credentialsSchema>;
 
+/**
+ * Body of POST /auth/login and /auth/register. `session` picks how the session is kept:
+ * "cookie" (the default, for the web client) sets an httpOnly cookie; "token" (for mobile
+ * and other non-browser clients) returns the token instead, to send as `Authorization: Bearer <token>`.
+ */
+export const authRequestSchema = credentialsSchema.extend({
+  session: z.enum(["cookie", "token"]).default("cookie"),
+});
+export type AuthRequest = z.input<typeof authRequestSchema>;
+
+/** Response of login/register with `session: "token"`. */
+export interface TokenAuthResponse {
+  user: User;
+  token: string;
+  /** ISO date; sign in again after it. */
+  expiresAt: string;
+}
+
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(64, "Name is too long"),
 });
@@ -306,6 +324,13 @@ export interface PresenceUserInfo {
 
 /** Header carrying the Pusher socket id, so the server can skip echoing events back. */
 export const SOCKET_ID_HEADER = "X-Socket-Id";
+
+/**
+ * `avatarUrl`, `Attachment.url` and other links in API responses are paths on the API
+ * server ("/api/…"). The web client uses them as they are (same origin); other clients
+ * resolve them against the server's address, e.g. resolveApiUrl("https://chat.example.com", url).
+ */
+export const resolveApiUrl = (serverOrigin: string, path: string) => new URL(path, serverOrigin).toString();
 
 export interface RealtimeConfig {
   pusher: { key: string; cluster: string };

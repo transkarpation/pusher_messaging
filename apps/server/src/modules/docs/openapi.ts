@@ -8,7 +8,7 @@ import {
   blockSchema,
   createMessageSchema,
   createRoomSchema,
-  credentialsSchema,
+  authRequestSchema,
   inviteSchema,
   typingSchema,
   updateMessageSchema,
@@ -82,6 +82,11 @@ const schemas: Record<string, Schema> = {
     },
   }),
   UserResponse: object({ user: ref("User") }),
+  TokenAuthResponse: object({
+    user: ref("User"),
+    token: { type: "string", description: "Send as `Authorization: Bearer <token>`" },
+    expiresAt: isoDate("Sign in again after this"),
+  }),
   MessageKind: {
     type: "string",
     enum: ["text", "member_joined", "member_left"],
@@ -200,11 +205,16 @@ const paths: Record<string, Record<string, Schema>> = {
     post: {
       tags: [tags.auth],
       summary: "Create an account and sign in",
-      description: `Sets the \`${SESSION_COOKIE}\` session cookie. Usernames are stored lowercase.`,
+      description:
+        `Sets the \`${SESSION_COOKIE}\` session cookie, or with \`session: "token"\` returns a token for the ` +
+        "`Authorization: Bearer` header instead. Usernames are stored lowercase.",
       security: [],
-      requestBody: jsonBody(fromZod(credentialsSchema)),
+      requestBody: jsonBody(fromZod(authRequestSchema)),
       responses: {
-        201: json(ref("UserResponse"), "Signed in as the new user"),
+        201: json(
+          { oneOf: [ref("UserResponse"), ref("TokenAuthResponse")] },
+          "Signed in as the new user (`TokenAuthResponse` for `session: \"token\"`)",
+        ),
         ...badRequest,
         409: error("Username is already taken"),
       },
@@ -214,17 +224,24 @@ const paths: Record<string, Record<string, Schema>> = {
     post: {
       tags: [tags.auth],
       summary: "Sign in",
-      description: `Sets the \`${SESSION_COOKIE}\` session cookie; later requests from this page are then authenticated. Demo accounts: GET /seeds.`,
+      description:
+        `Sets the \`${SESSION_COOKIE}\` session cookie; later requests from this page are then authenticated. ` +
+        "Mobile and other non-browser clients send `session: \"token\"` and get a token to send as " +
+        "`Authorization: Bearer <token>` instead. Demo accounts: GET /seeds.",
       security: [],
-      requestBody: jsonBody(fromZod(credentialsSchema)),
-      responses: { 200: json(ref("UserResponse"), "Signed in"), ...badRequest, 401: error("Invalid username or password") },
+      requestBody: jsonBody(fromZod(authRequestSchema)),
+      responses: {
+        200: json({ oneOf: [ref("UserResponse"), ref("TokenAuthResponse")] }, "Signed in (`TokenAuthResponse` for `session: \"token\"`)"),
+        ...badRequest,
+        401: error("Invalid username or password"),
+      },
     },
   },
   "/auth/logout": {
     post: {
       tags: [tags.auth],
       summary: "Sign out",
-      description: "Deletes the session and clears the cookie. Works signed out too.",
+      description: "Deletes the session (of the Bearer token, or of the cookie) and clears the cookie. Works signed out too.",
       security: [],
       responses: { 204: noContent },
     },
@@ -594,15 +611,18 @@ export const openApiDocument = {
     version: "1.0.0",
     description:
       "HTTP API of the chat. Authentication is a session cookie: call **POST /auth/login** (or /auth/register) " +
-      "here first and the browser sends the cookie with every later request. Real-time events go through Pusher; " +
+      "here first and the browser sends the cookie with every later request. Mobile and other non-browser clients " +
+      "sign in with `session: \"token\"` and send `Authorization: Bearer <token>` instead. Links in responses " +
+      "(`avatarUrl`, attachment `url`) are paths on this server. Real-time events go through Pusher; " +
       "send the `X-Socket-Id` header to keep your own connection from receiving the event your request caused.",
   },
   servers: [{ url: "/api" }],
   tags: Object.values(tags).map((name) => ({ name })),
-  security: [{ sessionCookie: [] }],
+  security: [{ sessionCookie: [] }, { bearerToken: [] }],
   components: {
     securitySchemes: {
       sessionCookie: { type: "apiKey", in: "cookie", name: SESSION_COOKIE, description: "Set by POST /auth/login" },
+      bearerToken: { type: "http", scheme: "bearer", description: "Returned by POST /auth/login with `session: \"token\"`" },
     },
     schemas,
   },
