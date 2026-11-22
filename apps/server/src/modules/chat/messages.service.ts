@@ -1,4 +1,4 @@
-import { MESSAGES_PAGE_SIZE, type Message, type MessagesResponse, type Receipt, type UpdateReceiptInput } from "@pm/shared";
+import { MESSAGES_PAGE_SIZE, isVoiceMessage, type Message, type MessagesResponse, type Receipt, type UpdateReceiptInput } from "@pm/shared";
 import { badRequest, forbidden, notFound } from "../../shared/errors.js";
 import type { Actor } from "../../shared/http.js";
 import type { Transactor } from "../../shared/transaction.js";
@@ -43,13 +43,13 @@ export class MessagesService {
   }
 
   /**
-   * Only the author may edit, and only a regular message that isn't deleted.
-   * The text may be emptied only if the message has attachments.
+   * Only the author may edit, and only a regular message that isn't deleted and isn't a
+   * voice message (those can only be deleted). The text may be emptied only if the message has attachments.
    */
   async edit(actor: Actor, roomId: number, messageId: number, text: string): Promise<Message> {
-    if (text === "" && (await this.attachments.forMessages([messageId])).length === 0) {
-      throw badRequest("Message is empty");
-    }
+    const files = (await this.attachments.forMessages([messageId])).filter((a) => a.roomId === roomId);
+    if (isVoiceMessage({ attachments: files })) throw forbidden("Voice messages can't be edited");
+    if (text === "" && files.length === 0) throw badRequest("Message is empty");
     const row = await this.messages.updateLive(roomId, messageId, actor.user.id, { type: "edit", text });
     if (!row) throw await this.whyNot(roomId, messageId, "You can only edit your own messages");
     const message = await this.views.message(row, [actor.user]);

@@ -11,7 +11,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import type { Message, Room, User } from "@pm/shared";
+import { isVoiceMessage, type Message, type Room, type User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
 import { useVoiceRecorder, voiceSupported } from "../hooks/useVoiceRecorder";
 import { dayKey, dayLabel } from "../lib/dates";
@@ -85,7 +85,8 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = room.members.some((m) => m.user.id === me.id && m.role === "owner");
-  const canEdit = (m: Message) => m.kind === "text" && !m.deletedAt && m.author.id === me.id;
+  /** Voice messages can only be deleted. */
+  const canEdit = (m: Message) => m.kind === "text" && !m.deletedAt && m.author.id === me.id && !isVoiceMessage(m);
   const canDelete = (m: Message) => m.kind === "text" && !m.deletedAt && (m.author.id === me.id || isOwner);
 
   // Focus the composer when a room opens (the component remounts per room).

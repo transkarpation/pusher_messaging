@@ -65,6 +65,12 @@ export const isInlineAudio = (contentType: string) => (INLINE_AUDIO_TYPES as rea
 export const isInlineMedia = (contentType: string) => isInlineImage(contentType) || isInlineAudio(contentType);
 /** Name given to recorded voice messages (plus an extension for the format). */
 export const VOICE_MESSAGE_NAME = "Voice message";
+/** Audio recorded in the app (it comes with a waveform), as opposed to an uploaded audio file. */
+export const isVoiceRecording = (a: { contentType: string; waveform: number[] | null }) =>
+  isInlineAudio(a.contentType) && a.waveform !== null;
+/** A voice message can't be edited, only deleted. */
+export const isVoiceMessage = (m: { attachments: { contentType: string; waveform: number[] | null }[] }) =>
+  m.attachments.some(isVoiceRecording);
 
 /** Text, attachments uploaded beforehand (POST /rooms/:id/attachments), or both. */
 export const createMessageSchema = z

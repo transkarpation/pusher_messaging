@@ -422,7 +422,8 @@ const paths: Record<string, Record<string, Schema>> = {
       tags: [tags.messages],
       summary: "Edit your message",
       description:
-        "Only the author, only regular messages that aren't deleted. The text may be emptied only if the message has attachments " +
+        "Only the author, only regular messages that aren't deleted and aren't voice messages (those can only be deleted). " +
+        "The text may be emptied only if the message has attachments " +
         "(the attachments themselves can't be changed). Broadcast as `message:updated`.",
       parameters: [roomId, idParam("messageId", "Message id")],
       requestBody: jsonBody(fromZod(updateMessageSchema)),
@@ -430,7 +431,7 @@ const paths: Record<string, Record<string, Schema>> = {
         200: json(ref("Message"), "The edited message (`editedAt` set)"),
         ...badRequest,
         ...unauthorized,
-        403: error("You can only edit your own messages"),
+        403: error("You can only edit your own messages, and voice messages can't be edited"),
         404: error("Room or message not found (or it's deleted or a system line)"),
       },
     },
