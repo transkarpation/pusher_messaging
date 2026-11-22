@@ -6,6 +6,7 @@ import type { AttachmentsRepository } from "./attachments.repository.js";
 import type { ChatEvents } from "./chat.events.js";
 import type { ChatViews } from "./chat.views.js";
 import type { MessagesRepository, PageCursor } from "./messages.repository.js";
+import type { PollsRepository } from "./polls.repository.js";
 import type { RoomAccess } from "./rooms.service.js";
 
 /** Messages and receipts in a room the actor belongs to (checked at the HTTP edge). */
@@ -14,17 +15,18 @@ export class MessagesService {
     private readonly tx: Transactor,
     private readonly messages: MessagesRepository,
     private readonly attachments: AttachmentsRepository,
+    private readonly polls: PollsRepository,
     private readonly views: ChatViews,
     private readonly events: ChatEvents,
   ) {}
 
-  /** A page of messages (see `PageCursor`) plus all receipts in the room. */
-  async page(roomId: number, cursor: PageCursor): Promise<MessagesResponse> {
+  /** A page of messages (see `PageCursor`) as `viewerId` sees them, plus all receipts in the room. */
+  async page(viewerId: number, roomId: number, cursor: PageCursor): Promise<MessagesResponse> {
     const [{ rows, hasMore }, receipts] = await Promise.all([
       this.messages.page(roomId, cursor, MESSAGES_PAGE_SIZE),
       this.messages.roomReceipts(roomId),
     ]);
-    return { messages: await this.views.messageList(rows), receipts, hasMore };
+    return { messages: await this.views.messageList(rows, [], viewerId), receipts, hasMore };
   }
 
   /** `attachmentIds`: the actor's uploads to this room not sent with another message yet. */
@@ -43,7 +45,7 @@ export class MessagesService {
   }
 
   /**
-   * Only the author may edit, and only a regular message that isn't deleted and isn't a
+   * Only the author may edit, and only a text message that isn't deleted and isn't a
    * voice message (those can only be deleted). The text may be emptied only if the message has attachments.
    */
   async edit(actor: Actor, roomId: number, messageId: number, text: string): Promise<Message> {
@@ -51,21 +53,22 @@ export class MessagesService {
     if (isVoiceMessage({ attachments: files })) throw forbidden("Voice messages can't be edited");
     if (text === "" && files.length === 0) throw badRequest("Message is empty");
     const row = await this.messages.updateLive(roomId, messageId, actor.user.id, { type: "edit", text });
-    if (!row) throw await this.whyNot(roomId, messageId, "You can only edit your own messages");
+    if (!row) throw await this.whyNot(roomId, messageId, "You can only edit your own messages", "Polls can't be edited");
     const message = await this.views.message(row, [actor.user]);
     this.events.messageUpdated(message, actor.socketId);
     return message;
   }
 
   /**
-   * The author, or the room owner, may delete a message. It's kept as a placeholder
-   * ("This message was deleted") with its text and files wiped, so the history keeps its shape.
+   * The author, or the room owner, may delete a message or a poll. It's kept as a placeholder
+   * ("This message was deleted") with its text, files and poll wiped, so the history keeps its shape.
    */
   async remove(actor: Actor, room: RoomAccess, messageId: number): Promise<Message> {
     const onlyAuthor = room.role === "owner" ? null : actor.user.id;
     const row = await this.tx.run(async (tx) => {
       const deleted = await this.messages.withTx(tx).updateLive(room.id, messageId, onlyAuthor, { type: "delete" });
-      if (deleted) await this.attachments.withTx(tx).deleteForMessage(messageId);
+      if (deleted?.kind === "text") await this.attachments.withTx(tx).deleteForMessage(messageId);
+      if (deleted?.kind === "poll") await this.polls.withTx(tx).deleteForMessage(messageId);
       return deleted;
     });
     if (!row) throw await this.whyNot(room.id, messageId, "You can only delete your own messages");
@@ -86,10 +89,10 @@ export class MessagesService {
     return receipt;
   }
 
-  /** 404 if there's no such live message, else 403 (someone else's). */
-  private async whyNot(roomId: number, messageId: number, forbiddenMessage: string) {
-    return (await this.messages.liveAuthor(roomId, messageId)) === null
-      ? notFound("Message not found")
-      : forbidden(forbiddenMessage);
+  /** 404 if there's no such live message, else 403: a poll (when `pollMessage` is given) or someone else's. */
+  private async whyNot(roomId: number, messageId: number, forbiddenMessage: string, pollMessage?: string) {
+    const live = await this.messages.live(roomId, messageId);
+    if (live === null) return notFound("Message not found");
+    return forbidden(pollMessage && live.kind === "poll" ? pollMessage : forbiddenMessage);
   }
 }

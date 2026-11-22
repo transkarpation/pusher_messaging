@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import {
   type Attachment,
+  type CreatePollInput,
   type Message,
+  type Poll,
+  type PollUpdatedEvent,
+  type PollVotedEvent,
   type Receipt,
   type User,
 } from "@pm/shared";
@@ -73,6 +77,18 @@ interface MessagesState {
   edit: (roomId: number, messageId: number, text: string) => Promise<void>;
   /** Deletes a message (own, or anyone's for the room owner), leaving a placeholder. Throws on failure. */
   remove: (roomId: number, messageId: number, meId: number) => Promise<void>;
+  /** Posts a poll (room owner only). Throws on failure. */
+  createPoll: (roomId: number, input: CreatePollInput) => Promise<void>;
+  /** Replaces the user's vote ([] takes it back). Throws on failure. */
+  vote: (roomId: number, messageId: number, optionIds: number[]) => Promise<void>;
+  /** Adds an option to a poll that takes suggestions. Throws on failure. */
+  addPollOption: (roomId: number, messageId: number, text: string) => Promise<void>;
+  /** Comments on a poll that allows it. Throws on failure. */
+  commentPoll: (roomId: number, messageId: number, text: string) => Promise<void>;
+  /** A poll's new state from the room channel; a stale one (lower version) is ignored. */
+  applyPoll: (event: PollUpdatedEvent) => void;
+  /** The user's own vote, changed in another tab. */
+  applyMyVotes: (event: PollVotedEvent) => void;
   /** Adds a realtime message (deduplicated); ignored for rooms not loaded yet. */
   receive: (message: Message) => void;
   /** Applies an edited message here and in the room list. */
@@ -159,6 +175,22 @@ export const useMessages = create<MessagesState>((set, get) => {
       updatePending(roomId, tempId, () => ({ status: "failed", error: (e as Error).message }));
     }
   };
+
+  /** Replaces the poll of a loaded message with `fn(poll)`; null leaves it as it is. */
+  const patchPoll = (roomId: number, messageId: number, fn: (poll: Poll) => Poll | null) =>
+    patch(roomId, (r) => {
+      const i = r.messages.findIndex((m) => m.id === messageId);
+      const message = r.messages[i];
+      const poll = message?.poll ? fn(message.poll) : null;
+      if (!message || !poll) return {};
+      const messages = [...r.messages];
+      messages[i] = { ...message, poll };
+      return { messages };
+    });
+
+  /** A poll returned to this user's own request: the newer copy wins, but their votes are always current. */
+  const applyOwnPoll = (roomId: number, messageId: number, poll: Poll) =>
+    patchPoll(roomId, messageId, (p) => (poll.version >= p.version ? poll : { ...p, myVotes: poll.myVotes }));
 
   /**
    * Refetches the latest page, picking up edits and deletions made while we were
@@ -267,6 +299,29 @@ export const useMessages = create<MessagesState>((set, get) => {
       const msg = await api.deleteMessage(roomId, messageId);
       get().applyDelete(msg, meId);
     },
+
+    createPoll: async (roomId, input) => {
+      const msg = await api.createPoll(roomId, input);
+      patch(roomId, (r) => ({ messages: merge(r.messages, [msg]) }));
+      useRooms.getState().onMessage(msg, { fromMe: true, viewing: true });
+    },
+
+    vote: async (roomId, messageId, optionIds) => {
+      applyOwnPoll(roomId, messageId, await api.votePoll(roomId, messageId, { optionIds }));
+    },
+
+    addPollOption: async (roomId, messageId, text) => {
+      applyOwnPoll(roomId, messageId, await api.addPollOption(roomId, messageId, { text }));
+    },
+
+    commentPoll: async (roomId, messageId, text) => {
+      applyOwnPoll(roomId, messageId, await api.commentPoll(roomId, messageId, { text }));
+    },
+
+    applyPoll: ({ roomId, messageId, poll }) =>
+      patchPoll(roomId, messageId, (p) => (poll.version < p.version ? null : { ...poll, myVotes: p.myVotes })),
+
+    applyMyVotes: ({ roomId, messageId, myVotes }) => patchPoll(roomId, messageId, (p) => ({ ...p, myVotes })),
 
     receive: (msg) => patch(msg.roomId, (r) => ({ messages: merge(r.messages, [msg]) })),
 

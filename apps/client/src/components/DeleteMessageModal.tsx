@@ -23,10 +23,14 @@ export function DeleteMessageModal({ message, me, onClose }: { message: Message;
   };
 
   return (
-    <Modal title="Delete message?" onClose={busy ? undefined : onClose}>
+    <Modal title={message.poll ? "Delete poll?" : "Delete message?"} onClose={busy ? undefined : onClose}>
       <div className="stack">
         <p className="muted">
-          {own ? "It will be deleted for everyone in the room." : `${displayName(message.author)}'s message will be deleted for everyone in the room.`}
+          {message.poll
+            ? "The poll, its votes and comments will be deleted for everyone in the room."
+            : own
+              ? "It will be deleted for everyone in the room."
+              : `${displayName(message.author)}'s message will be deleted for everyone in the room.`}
         </p>
         <blockquote className="quote">{messagePreview(message)}</blockquote>
         {error && <p className="error">{error}</p>}

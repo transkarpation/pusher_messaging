@@ -8,9 +8,11 @@ import {
   ChatViews,
   DrizzleInvitesRepository,
   DrizzleMessagesRepository,
+  DrizzlePollsRepository,
   DrizzleRoomsRepository,
   InvitesService,
   MessagesService,
+  PollsService,
   RoomsService,
 } from "./modules/chat/index.js";
 import type { RealtimeConfig } from "@pm/shared";
@@ -55,12 +57,14 @@ export function createContainer() {
   const messagesRepo = new DrizzleMessagesRepository(db);
   const invitesRepo = new DrizzleInvitesRepository(db);
   const attachmentsRepo = new DrizzleAttachmentsRepository(db);
-  const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, users, blocks);
+  const pollsRepo = new DrizzlePollsRepository(db);
+  const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, pollsRepo, users, blocks);
   const events = new ChatEvents(publisher, views);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
-  const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, views, events);
+  const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, pollsRepo, views, events);
   const attachments = new AttachmentsService(attachmentsRepo);
+  const polls = new PollsService(tx, messagesRepo, pollsRepo, views, events);
 
   const realtime = new RealtimeService(rooms, users);
   const seeds = new SeedsService(users, rooms, process.env.NODE_ENV !== "production");
@@ -73,6 +77,7 @@ export function createContainer() {
     invites,
     messages,
     attachments,
+    polls,
     realtime,
     /** The WebSocket gateway to attach to the HTTP server; null with the Pusher driver. */
     gateway,

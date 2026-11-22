@@ -7,11 +7,16 @@ import {
   AVATAR_CONTENT_TYPES,
   AVATAR_MAX_BYTES,
   MESSAGES_PAGE_SIZE,
+  POLL_MAX_OPTIONS,
   blockSchema,
   createMessageSchema,
+  createPollSchema,
   createRoomSchema,
   authRequestSchema,
   inviteSchema,
+  pollCommentSchema,
+  pollOptionSchema,
+  pollVoteSchema,
   typingSchema,
   updateMessageSchema,
   updateProfileSchema,
@@ -66,6 +71,7 @@ const tags = {
   users: "Users",
   rooms: "Rooms",
   messages: "Messages",
+  polls: "Polls",
   invites: "Invitations",
   blocks: "Blocking",
   realtime: "Realtime",
@@ -91,9 +97,10 @@ const schemas: Record<string, Schema> = {
   }),
   MessageKind: {
     type: "string",
-    enum: ["text", "member_joined", "member_left"],
+    enum: ["text", "poll", "member_joined", "member_left"],
     description:
-      "`text`: a regular message by `author`. System lines (`text` is \"\", `author` is who it's about): " +
+      "`text`: a regular message by `author`. `poll`: a poll by `author` (the room owner) in `poll`, `text` is \"\". " +
+      "System lines (`text` is \"\", `author` is who it's about): " +
       "`member_joined` accepted an invite, `member_left` left the room.",
   },
   Attachment: object({
@@ -118,6 +125,28 @@ const schemas: Record<string, Schema> = {
     editedAt: { ...nullable(isoDate()), description: "Set once the author edited the text" },
     deletedAt: { ...nullable(isoDate()), description: "Set once deleted; the message stays as a placeholder" },
     author: ref("User"),
+    poll: { ...nullable(ref("Poll")), description: "The poll of a `poll` message; null otherwise and once deleted" },
+  }),
+  PollOption: object({
+    id: { type: "integer" },
+    text: { type: "string" },
+    voteCount: { type: "integer" },
+    voters: { ...arrayOf(ref("User")), description: "Earliest first; always empty in an anonymous poll" },
+    addedBy: { ...nullable(ref("User")), description: "The author, or a member who suggested it" },
+  }),
+  PollComment: object({ id: { type: "integer" }, author: ref("User"), text: { type: "string" }, createdAt: isoDate() }),
+  Poll: object({
+    question: { type: "string" },
+    multiple: { type: "boolean", description: "Voters may pick more than one option" },
+    maxVotes: { ...nullable({ type: "integer" }), description: "With `multiple`: at most this many options per person" },
+    anonymous: { type: "boolean", description: "Nobody sees who voted for what" },
+    allowSuggestions: { type: "boolean", description: "Members may add options" },
+    allowComments: { type: "boolean", description: "Members may comment" },
+    options: arrayOf(ref("PollOption")),
+    voterCount: { type: "integer", description: "People who voted; percentages are of this" },
+    comments: { ...arrayOf(ref("PollComment")), description: "Oldest first" },
+    version: { type: "integer", description: "Grows with every change; the higher of two copies is newer" },
+    myVotes: { ...arrayOf({ type: "integer" }), description: "Option ids you voted for" },
   }),
   RoomRole: { type: "string", enum: ["owner", "member"] },
   RoomMember: object({ user: ref("User"), role: ref("RoomRole") }),
@@ -522,6 +551,76 @@ const paths: Record<string, Record<string, Schema>> = {
       parameters: [roomId],
       requestBody: jsonBody(fromZod(updateReceiptSchema)),
       responses: { 200: json(ref("Receipt"), "Your receipt after the update"), ...badRequest, ...unauthorized, ...roomNotFound },
+    },
+  },
+
+  // ---- polls ---------------------------------------------------------------
+  "/rooms/{roomId}/polls": {
+    post: {
+      tags: [tags.polls],
+      summary: "Create a poll",
+      description:
+        `Room owner only. Up to ${POLL_MAX_OPTIONS} options, all different. The poll is a message of kind \`poll\`, ` +
+        "broadcast as `message:created`; delete it like any message (`DELETE /rooms/{roomId}/messages/{messageId}`).",
+      parameters: [roomId],
+      requestBody: jsonBody(fromZod(createPollSchema)),
+      responses: {
+        201: json(ref("Message"), "The poll's message"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Only the room owner can create polls"),
+        ...roomNotFound,
+      },
+    },
+  },
+  "/rooms/{roomId}/polls/{messageId}/votes": {
+    put: {
+      tags: [tags.polls],
+      summary: "Vote",
+      description:
+        "Replaces your vote with `optionIds` (`[]` takes it back): one option unless the poll is `multiple`, " +
+        "at most `maxVotes` if set. The room gets `poll:updated` with the poll's new state; your other tabs get `poll:voted`.",
+      parameters: [roomId, idParam("messageId", "The poll's message id")],
+      requestBody: jsonBody(fromZod(pollVoteSchema)),
+      responses: {
+        200: json(ref("Poll"), "The poll as you see it"),
+        ...badRequest,
+        ...unauthorized,
+        404: error("Room or poll not found"),
+      },
+    },
+  },
+  "/rooms/{roomId}/polls/{messageId}/options": {
+    post: {
+      tags: [tags.polls],
+      summary: "Suggest an option",
+      description: "Anyone if the poll has `allowSuggestions`, otherwise only its author. Broadcast as `poll:updated`.",
+      parameters: [roomId, idParam("messageId", "The poll's message id")],
+      requestBody: jsonBody(fromZod(pollOptionSchema)),
+      responses: {
+        201: json(ref("Poll"), "The poll with the new option"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("The poll doesn't take suggestions"),
+        404: error("Room or poll not found"),
+        409: error("The poll already has this option"),
+      },
+    },
+  },
+  "/rooms/{roomId}/polls/{messageId}/comments": {
+    post: {
+      tags: [tags.polls],
+      summary: "Comment on a poll",
+      description: "Only if the poll has `allowComments`. Broadcast as `poll:updated`.",
+      parameters: [roomId, idParam("messageId", "The poll's message id")],
+      requestBody: jsonBody(fromZod(pollCommentSchema)),
+      responses: {
+        201: json(ref("Poll"), "The poll with the new comment"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Comments are off for this poll"),
+        404: error("Room or poll not found"),
+      },
     },
   },
 

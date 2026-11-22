@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { User } from "@pm/shared";
+import { isSystemMessage, type User } from "@pm/shared";
 import { PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
@@ -56,7 +56,7 @@ export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
         {rooms.map((room) => {
           const last = room.lastMessage;
           const preview = last
-            ? last.kind !== "text"
+            ? isSystemMessage(last)
               ? systemText(last, me.id)
               : last.deletedAt
               ? deletedLabel(last.author.id === me.id)

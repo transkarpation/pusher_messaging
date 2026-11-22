@@ -11,7 +11,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { isVoiceMessage, type Message, type Room, type User } from "@pm/shared";
+import { isSystemMessage, isVoiceMessage, type Message, type Room, type User } from "@pm/shared";
 import { useTypingNotifier } from "../hooks/useTypingNotifier";
 import { useVoiceRecorder, voiceSupported } from "../hooks/useVoiceRecorder";
 import { dayKey, dayLabel } from "../lib/dates";
@@ -23,10 +23,12 @@ import { useBlocks } from "../store/blocks";
 import { useRooms } from "../store/rooms";
 import { DraftAttachments, MessageAttachments, PendingAttachments } from "./Attachments";
 import { Avatar } from "./Avatar";
+import { CreatePollModal } from "./CreatePollModal";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { EmojiPicker } from "./EmojiPicker";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
+import { PollCard } from "./PollCard";
 import { RecordingBar } from "./RecordingBar";
 import { VoiceDraft } from "./VoiceDraft";
 import { Spinner } from "./Spinner";
@@ -51,7 +53,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   // Regular messages of blocked people are hidden (system lines about them stay). They are
   // still kept in the store, so unblocking shows them again without a refetch.
   const messages = useMemo(
-    () => (blocked.size === 0 ? allMessages : allMessages.filter((m) => m.kind !== "text" || !blocked.has(m.author.id))),
+    () => (blocked.size === 0 ? allMessages : allMessages.filter((m) => isSystemMessage(m) || !blocked.has(m.author.id))),
     [allMessages, blocked],
   );
   const fetch = useMessages((s) => s.fetch);
@@ -75,6 +77,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Message | null>(null);
+  const [creatingPoll, setCreatingPoll] = useState(false);
   /** On touch devices, tapping a message shows its actions (there's no hover). */
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -85,9 +88,9 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = room.members.some((m) => m.user.id === me.id && m.role === "owner");
-  /** Voice messages can only be deleted. */
+  /** Voice messages and polls can only be deleted. */
   const canEdit = (m: Message) => m.kind === "text" && !m.deletedAt && m.author.id === me.id && !isVoiceMessage(m);
-  const canDelete = (m: Message) => m.kind === "text" && !m.deletedAt && (m.author.id === me.id || isOwner);
+  const canDelete = (m: Message) => !isSystemMessage(m) && !m.deletedAt && (m.author.id === me.id || isOwner);
 
   // Focus the composer when a room opens (the component remounts per room).
   // Skipped on touch devices, where it would pop up the on-screen keyboard.
@@ -363,7 +366,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
    */
   const avatarSlot = (m: Message, next: Message | undefined) => {
     const endsRun =
-      !next || next.kind !== "text" || next.author.id !== m.author.id || dayKey(next.createdAt) !== dayKey(m.createdAt);
+      !next || isSystemMessage(next) || next.author.id !== m.author.id || dayKey(next.createdAt) !== dayKey(m.createdAt);
     return endsRun ? <Avatar user={m.author} size={28} className="message-avatar" /> : null;
   };
 
@@ -392,6 +395,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     }
     const classes = [
       own ? "own" : "with-avatar",
+      m.poll && "poll-message",
       m.id === selectedId && "selected",
       m.id === editing?.message.id && "editing",
     ].filter(Boolean);
@@ -404,8 +408,14 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       >
         {!own && avatarSlot(m, next)}
         {!own && <span className="message-author">{displayName(m.author)}</span>}
-        <MessageAttachments attachments={m.attachments} />
-        {m.text}
+        {m.poll ? (
+          <PollCard message={m} me={me} />
+        ) : (
+          <>
+            <MessageAttachments attachments={m.attachments} />
+            {m.text}
+          </>
+        )}
         <span className="message-meta">
           {m.editedAt && (
             <span className="edited" title={`Edited ${dateTime(m.editedAt)}`}>
@@ -556,6 +566,18 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
               >
                 📎
               </button>
+              {isOwner && (
+                <button
+                  type="button"
+                  className="ghost icon attach-toggle"
+                  aria-label="Create a poll"
+                  title={editing ? "Finish editing first" : "Create a poll"}
+                  disabled={!!editing}
+                  onClick={() => setCreatingPoll(true)}
+                >
+                  📊
+                </button>
+              )}
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -622,6 +644,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       </div>
 
       {deleting && <DeleteMessageModal message={deleting} me={me} onClose={() => setDeleting(null)} />}
+      {creatingPoll && <CreatePollModal roomId={room.id} onClose={() => setCreatingPoll(false)} />}
     </section>
   );
 }

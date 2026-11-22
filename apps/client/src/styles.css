@@ -715,3 +715,131 @@ button.voice-play {
   border-radius: 8px;
 }
 .voice-draft .voice-player { flex: 1; width: auto; }
+
+/* ---- polls --------------------------------------------------------------- */
+
+/* iOS-style switch on a native checkbox (keeps keyboard and screen reader support). */
+input.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+input.switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  transition: transform 0.15s;
+}
+input.switch:checked { background: var(--online); }
+input.switch:checked::before { transform: translateX(18px); }
+input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input.switch:disabled { cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  input.switch, input.switch::before { transition: none; }
+}
+
+.poll-form { gap: 16px; }
+.poll-form-options { gap: 8px; }
+.poll-draft-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.poll-draft-options li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+.poll-draft-options li.dragging { box-shadow: 0 4px 14px rgb(0 0 0 / 0.18); border-color: var(--accent); }
+.poll-draft-options li input { flex: 1; border: 0; padding-left: 0; }
+.poll-draft-options li input:focus { outline: none; }
+.poll-draft-options li:focus-within { border-color: var(--accent); }
+button.drag-handle { cursor: grab; touch-action: none; font-size: 16px; padding: 8px 8px 8px 10px; }
+.poll-draft-options li.dragging button.drag-handle { cursor: grabbing; }
+button.remove-option { font-size: 18px; }
+
+.toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bubble);
+}
+label.toggle-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+label.toggle-row.disabled { opacity: 0.5; cursor: default; }
+.toggle-text { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
+label.limit-row { flex-direction: row; align-items: center; gap: 8px; font-size: 14px; }
+label.limit-row select { font: inherit; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: inherit; }
+
+/* A poll in the message list: a wider bubble with the options inside. */
+.messages li.poll-message { width: min(360px, 85%); max-width: none; white-space: normal; }
+.poll { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.poll-question { font-weight: 600; font-size: 15px; white-space: pre-wrap; }
+.poll-options { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.messages .poll-options li,
+.messages .poll-comment-list li {
+  /* reset the bubble styles of `.messages li` */
+  position: static;
+  align-self: stretch;
+  max-width: none;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  white-space: normal;
+}
+button.poll-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+}
+button.poll-choice:hover:not(:disabled) { border-color: var(--accent); }
+button.poll-choice.picked { border-color: var(--accent); }
+.poll-mark { flex: none; width: 16px; height: 16px; border: 2px solid var(--muted); border-radius: 50%; }
+.poll-mark.square { border-radius: 4px; }
+button.poll-choice.picked .poll-mark { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 2px var(--card); }
+.poll-option-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.poll-result { display: flex; flex-direction: column; gap: 3px; }
+.poll-result-row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.poll-percent { flex: none; min-width: 36px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.poll-check { color: var(--accent); font-weight: 700; }
+.poll-voters { display: inline-flex; align-items: center; flex: none; }
+.poll-voters .avatar { margin-left: -5px; box-shadow: 0 0 0 1.5px var(--bubble); }
+.messages li.own .poll-voters .avatar { box-shadow: 0 0 0 1.5px var(--own); }
+.poll-voters .avatar:first-child { margin-left: 0; }
+.poll-voters .muted { margin-left: 4px; }
+.poll-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.poll-bar span { display: block; height: 100%; border-radius: 2px; background: var(--muted); }
+.poll-result.mine .poll-bar span { background: var(--accent); }
+.poll-suggested { font-style: italic; }
+button.poll-add-option { align-self: flex-start; }
+.poll-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+button.poll-vote { padding: 4px 14px; font-size: 14px; }
+.poll-inline-form { display: flex; gap: 6px; align-items: center; }
+.poll-inline-form input { flex: 1; padding: 6px 8px; font-size: 14px; background: var(--card); }
+.poll-inline-form button[type="submit"] { padding: 6px 10px; font-size: 14px; }
+.poll-comments { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+.poll-comments > button.link { align-self: flex-start; }
+.poll-comment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.messages .poll-comment-list li { display: flex; align-items: flex-start; gap: 6px; }
+.poll-comment-author { font-weight: 600; }

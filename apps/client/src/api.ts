@@ -8,12 +8,17 @@ import {
   type BlockInput,
   type BlocksEvent,
   type CreateMessageInput,
+  type CreatePollInput,
   type CreateRoomInput,
   type Credentials,
   type Invitation,
   type InviteInput,
   type Message,
   type PhoenixTokenResponse,
+  type Poll,
+  type PollCommentInput,
+  type PollOptionInput,
+  type PollVoteInput,
   type RealtimeConfig,
   type MessagesResponse,
   type Receipt,
@@ -116,6 +121,15 @@ export const api = {
     request<Message>(`${room(roomId)}/messages/${messageId}`, "PATCH", input),
   deleteMessage: (roomId: number, messageId: number) =>
     request<Message>(`${room(roomId)}/messages/${messageId}`, "DELETE"),
+  /** Room owner only; returns the poll's message. */
+  createPoll: (roomId: number, input: CreatePollInput) => request<Message>(`${room(roomId)}/polls`, "POST", input),
+  /** Replaces the caller's vote; `optionIds: []` takes it back. */
+  votePoll: (roomId: number, messageId: number, input: PollVoteInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/votes`, "PUT", input),
+  addPollOption: (roomId: number, messageId: number, input: PollOptionInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/options`, "POST", input),
+  commentPoll: (roomId: number, messageId: number, input: PollCommentInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/comments`, "POST", input),
   updateReceipt: (roomId: number, input: UpdateReceiptInput) =>
     request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
   sendTyping: (roomId: number, input: TypingInput) =>

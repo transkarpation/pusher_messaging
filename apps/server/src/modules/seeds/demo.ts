@@ -19,7 +19,7 @@ export const DEMO_USERS = [
     note: "Has a pending invite to «Вихідні 🏔», has a photo",
   },
   { username: "maksym", name: "Максим Ткаченко", note: "Blocked taras: his messages are hidden in «Загальний»" },
-  { username: "sofia", name: "Софія Мельник", note: "Owner of «Вихідні 🏔»" },
+  { username: "sofia", name: "Софія Мельник", note: "Owner of «Вихідні 🏔», posted a poll there (owners can create polls)" },
   { username: "taras", name: "Тарас Кравець", note: "Blocked by maksym (he isn't told)" },
   { username: "dmytro", name: "Дмитро Олійник", note: "Left «Вихідні 🏔»" },
   // Never set a name: shown as @kateryna.

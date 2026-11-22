@@ -15,10 +15,11 @@ export function systemText(message: Message, meId: number): string | null {
     case "member_left":
       return `${who} left the room`;
     case "text":
+    case "poll":
       return null;
   }
 }
 
-/** The text of a regular message, or a summary of its files when it has no text. */
-export const messagePreview = (message: Pick<Message, "text" | "attachments">) =>
-  message.text || attachmentSummary(message.attachments);
+/** The text of a regular message (or a summary of its files when it has no text), or a poll's question. */
+export const messagePreview = (message: Pick<Message, "text" | "attachments" | "poll">) =>
+  message.poll ? `📊 ${message.poll.question}` : message.text || attachmentSummary(message.attachments);

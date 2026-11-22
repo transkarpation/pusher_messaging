@@ -6,6 +6,11 @@ const rank = (m: Message) =>
 
 /**
  * Of two copies of the same message, the more recent one, so a stale fetch or an
- * out-of-order event can't undo an edit or a deletion. On a tie, `b` wins.
+ * out-of-order event can't undo an edit, a deletion or a poll's votes. On a tie, `b` wins.
  */
-export const latestVersion = (a: Message, b: Message): Message => (rank(b) >= rank(a) ? b : a);
+export const latestVersion = (a: Message, b: Message): Message => {
+  const ra = rank(a);
+  const rb = rank(b);
+  if (ra !== rb) return rb > ra ? b : a;
+  return a.poll && b.poll && a.poll.version > b.poll.version ? a : b;
+};

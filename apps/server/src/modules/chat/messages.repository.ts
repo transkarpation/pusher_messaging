@@ -5,6 +5,10 @@ import { executorOf, type DbExecutor, type TxScope } from "../../shared/transact
 
 const { messages, receipts } = schema;
 
+/** Kinds someone wrote, as opposed to system lines: they count as unread and can be deleted. */
+const AUTHORED_KINDS: MessageKind[] = ["text", "poll"];
+const SYSTEM_KINDS: MessageKind[] = ["member_joined", "member_left"];
+
 /** A message as stored: the author is an id, attached by the service. */
 export interface MessageRow {
   id: number;
@@ -48,8 +52,8 @@ export interface MessagesRepository {
   page(roomId: number, cursor: PageCursor, size: number): Promise<{ rows: MessageRow[]; hasMore: boolean }>;
   create(roomId: number, userId: number, kind: MessageKind, text: string): Promise<MessageRow>;
   /**
-   * Changes a live (regular, not deleted) message, optionally only if `onlyAuthorId` wrote it.
-   * Null if nothing matched.
+   * Changes a live (not deleted, not a system line) message, optionally only if `onlyAuthorId`
+   * wrote it. Only text messages can be edited; polls can be deleted. Null if nothing matched.
    */
   updateLive(
     roomId: number,
@@ -57,12 +61,12 @@ export interface MessagesRepository {
     onlyAuthorId: number | null,
     change: { type: "edit"; text: string } | { type: "delete" },
   ): Promise<MessageRow | null>;
-  /** Author of a live message in the room, or null if there is none. */
-  liveAuthor(roomId: number, messageId: number): Promise<number | null>;
-  /** Latest message per room, skipping regular messages by `hiddenAuthorIds`. */
+  /** Author and kind of a live (not deleted, not system) message in the room, or null if there is none. */
+  live(roomId: number, messageId: number): Promise<{ userId: number; kind: MessageKind } | null>;
+  /** Latest message per room, skipping messages written by `hiddenAuthorIds`. */
   latest(roomIds: number[], hiddenAuthorIds: number[]): Promise<MessageRow[]>;
   /**
-   * Per room: regular, live messages by others (not `hiddenAuthorIds`) newer than the user's read watermark.
+   * Per room: live text messages and polls by others (not `hiddenAuthorIds`) newer than the user's read watermark.
    */
   unreadCounts(userId: number, roomIds: number[], hiddenAuthorIds: number[]): Promise<Map<number, number>>;
   roomReceipts(roomId: number): Promise<Receipt[]>;
@@ -118,7 +122,7 @@ export class DrizzleMessagesRepository implements MessagesRepository {
         and(
           eq(messages.id, messageId),
           eq(messages.roomId, roomId),
-          eq(messages.kind, "text"),
+          change.type === "edit" ? eq(messages.kind, "text") : inArray(messages.kind, AUTHORED_KINDS),
           isNull(messages.deletedAt),
           onlyAuthorId === null ? undefined : eq(messages.userId, onlyAuthorId),
         ),
@@ -127,20 +131,20 @@ export class DrizzleMessagesRepository implements MessagesRepository {
     return row ?? null;
   }
 
-  async liveAuthor(roomId: number, messageId: number) {
+  async live(roomId: number, messageId: number) {
     const [row] = await this.db
-      .select({ userId: messages.userId })
+      .select({ userId: messages.userId, kind: messages.kind })
       .from(messages)
       .where(
         and(
           eq(messages.id, messageId),
           eq(messages.roomId, roomId),
-          eq(messages.kind, "text"),
+          inArray(messages.kind, AUTHORED_KINDS),
           isNull(messages.deletedAt),
         ),
       )
       .limit(1);
-    return row?.userId ?? null;
+    return row ?? null;
   }
 
   async latest(roomIds: number[], hiddenAuthorIds: number[]) {
@@ -153,7 +157,7 @@ export class DrizzleMessagesRepository implements MessagesRepository {
         .where(
           and(
             inArray(messages.roomId, roomIds),
-            or(ne(messages.kind, "text"), notInArray(messages.userId, hiddenAuthorIds)),
+            or(inArray(messages.kind, SYSTEM_KINDS), notInArray(messages.userId, hiddenAuthorIds)),
           ),
         )
         .orderBy(messages.roomId, desc(messages.id))
@@ -171,7 +175,7 @@ export class DrizzleMessagesRepository implements MessagesRepository {
           inArray(messages.roomId, roomIds),
           ne(messages.userId, userId),
           notInArray(messages.userId, hiddenAuthorIds),
-          eq(messages.kind, "text"),
+          inArray(messages.kind, AUTHORED_KINDS),
           isNull(messages.deletedAt),
           gt(messages.id, sql`coalesce(${receipts.readUpTo}, 0)`),
         ),

@@ -4,6 +4,8 @@ import {
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
+  POLL_UPDATED_EVENT,
+  POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
@@ -14,6 +16,8 @@ import {
   userChannel,
   type InvitationRemovedEvent,
   type Message,
+  type PollUpdatedEvent,
+  type PollVotedEvent,
   type Receipt,
   type RoomInvite,
   type RoomInvitesEvent,
@@ -46,6 +50,16 @@ export class ChatEvents {
   /** Carries the message with `deletedAt` set and empty `text`. */
   messageDeleted(message: Message, except?: string) {
     this.realtime.publish(roomChannel(message.roomId), MESSAGE_DELETED_EVENT, message, except);
+  }
+
+  /** A poll's new state, the same for everyone in the room. */
+  pollUpdated(event: PollUpdatedEvent, except?: string) {
+    this.realtime.publish(roomChannel(event.roomId), POLL_UPDATED_EVENT, event, except);
+  }
+
+  /** The user's own vote, for their other tabs. */
+  pollVoted(userId: number, event: PollVotedEvent, except?: string) {
+    this.realtime.publish(userChannel(userId), POLL_VOTED_EVENT, event, except);
   }
 
   receiptUpdated(receipt: Receipt, except?: string) {

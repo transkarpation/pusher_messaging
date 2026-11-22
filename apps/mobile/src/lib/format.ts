@@ -11,5 +11,5 @@ export function preview(m: Message, meId: number): string {
   if (m.kind === "member_left") return `${who} left the room`;
   if (m.deletedAt) return m.author.id === meId ? "You deleted this message" : "This message was deleted";
   const files = m.attachments.length === 0 ? "" : m.attachments.length === 1 ? `📎 ${m.attachments[0]!.name}` : `📎 ${m.attachments.length} files`;
-  return `${who}: ${m.text || files}`;
+  return `${who}: ${m.poll ? `📊 ${m.poll.question}` : m.text || files}`;
 }

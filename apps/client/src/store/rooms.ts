@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, Receipt, Room, RoomInvite, RoomMember, User } from "@pm/shared";
+import { isSystemMessage, type Message, type Receipt, type Room, type RoomInvite, type RoomMember, type User } from "@pm/shared";
 import { api } from "../api";
 import { latestVersion } from "../lib/messageVersion";
 import { isBlocked } from "./blocks";
@@ -144,7 +144,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
     set((s) => {
       const room = s.rooms[message.roomId];
       // Messages of blocked users don't show up in the preview or the unread count.
-      if (!room || (message.kind === "text" && isBlocked(message.author.id))) return s;
+      if (!room || (!isSystemMessage(message) && isBlocked(message.author.id))) return s;
       const isNewer = !room.lastMessage || message.id > room.lastMessage.id;
       return {
         rooms: {
@@ -153,7 +153,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
             ...room,
             lastMessage: isNewer ? message : room.lastMessage,
             unreadCount:
-              room.unreadCount + (isNewer && !fromMe && !viewing && message.kind === "text" ? 1 : 0),
+              room.unreadCount + (isNewer && !fromMe && !viewing && !isSystemMessage(message) ? 1 : 0),
           },
         },
       };

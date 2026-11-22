@@ -18,9 +18,13 @@ import {
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
+  POLL_UPDATED_EVENT,
   isInlineImage,
+  isSystemMessage,
   roomChannel,
   type Message,
+  type Poll,
+  type PollUpdatedEvent,
 } from "@pm/shared";
 import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
@@ -64,7 +68,7 @@ export default function RoomScreen() {
     };
   }, [roomId]);
 
-  // New, edited and deleted messages from others, live.
+  // New, edited and deleted messages from others, and poll results, live.
   useEffect(() => {
     const channelName = roomChannel(roomId);
     const apply = (m: Message) => setMessages((prev) => merge(prev, [m]));
@@ -78,6 +82,15 @@ export default function RoomScreen() {
         channel.bind(MESSAGE_CREATED_EVENT, apply);
         channel.bind(MESSAGE_UPDATED_EVENT, apply);
         channel.bind(MESSAGE_DELETED_EVENT, apply);
+        channel.bind(POLL_UPDATED_EVENT, (e: PollUpdatedEvent) =>
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === e.messageId && m.poll && e.poll.version >= m.poll.version
+                ? { ...m, poll: { ...e.poll, myVotes: m.poll.myVotes } }
+                : m,
+            ),
+          ),
+        );
       })
       .catch((e) => console.warn("Realtime is unavailable:", e));
     return () => {
@@ -158,7 +171,7 @@ export default function RoomScreen() {
 
 function MessageItem({ message: m, meId }: { message: Message; meId: number }) {
   const own = m.author.id === meId;
-  if (m.kind !== "text") {
+  if (isSystemMessage(m)) {
     const who = own ? "You" : displayName(m.author);
     return <Text style={styles.system}>{m.kind === "member_joined" ? `${who} joined the room` : `${who} left the room`}</Text>;
   }
@@ -180,11 +193,34 @@ function MessageItem({ message: m, meId }: { message: Message; meId: number }) {
             ),
           )}
           {m.text !== "" && <Text style={styles.text}>{m.text}</Text>}
+          {m.poll && <PollSummary poll={m.poll} />}
         </>
       )}
       <Text style={styles.meta}>
         {m.editedAt && !m.deletedAt ? "edited · " : ""}
         {time(m.createdAt)}
+      </Text>
+    </View>
+  );
+}
+
+/** A poll's results, read-only: voting, suggestions and comments are in the web app for now. */
+function PollSummary({ poll }: { poll: Poll }) {
+  const mine = new Set(poll.myVotes);
+  return (
+    <View style={styles.poll}>
+      <Text style={styles.pollQuestion}>📊 {poll.question}</Text>
+      {poll.options.map((o) => {
+        const percent = poll.voterCount === 0 ? 0 : Math.round((o.voteCount / poll.voterCount) * 100);
+        return (
+          <Text key={o.id} style={styles.text}>
+            {percent}% · {o.text}
+            {mine.has(o.id) ? " ✓" : ""}
+          </Text>
+        );
+      })}
+      <Text style={styles.deleted}>
+        {poll.voterCount === 1 ? "1 vote" : `${poll.voterCount} votes`} · vote in the web app
       </Text>
     </View>
   );
@@ -203,6 +239,8 @@ const styles = StyleSheet.create({
   image: { width: 220, height: 160, borderRadius: 8, backgroundColor: colors.bubble },
   file: { color: colors.accent },
   meta: { alignSelf: "flex-end", fontSize: 11, color: colors.muted },
+  poll: { gap: 4 },
+  pollQuestion: { fontSize: 16, fontWeight: "600", color: colors.text },
   system: { alignSelf: "center", fontSize: 12, color: colors.muted, marginVertical: 4 },
   error: { color: colors.error, paddingHorizontal: 12 },
   composer: {

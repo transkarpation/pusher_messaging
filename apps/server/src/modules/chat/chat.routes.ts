@@ -6,9 +6,13 @@ import {
   FILE_NAME_HEADER,
   FILE_TYPE_HEADER,
   createMessageSchema,
+  createPollSchema,
   createRoomSchema,
   inviteSchema,
   messagesQuerySchema,
+  pollCommentSchema,
+  pollOptionSchema,
+  pollVoteSchema,
   typingSchema,
   updateMessageSchema,
   updateReceiptSchema,
@@ -19,6 +23,7 @@ import type { RequireAuth } from "../auth/index.js";
 import type { AttachmentsService } from "./attachments.service.js";
 import type { InvitesService } from "./invites.service.js";
 import type { MessagesService } from "./messages.service.js";
+import type { PollsService } from "./polls.service.js";
 import type { RoomAccess, RoomsService } from "./rooms.service.js";
 
 declare global {
@@ -43,10 +48,16 @@ const requireRoomMember =
 
 /** /api/rooms: rooms, members, invites to a room, typing, messages and receipts. */
 export function roomsRoutes(
-  services: { rooms: RoomsService; invites: InvitesService; messages: MessagesService; attachments: AttachmentsService },
+  services: {
+    rooms: RoomsService;
+    invites: InvitesService;
+    messages: MessagesService;
+    attachments: AttachmentsService;
+    polls: PollsService;
+  },
   requireAuth: RequireAuth,
 ) {
-  const { rooms, invites, messages, attachments } = services;
+  const { rooms, invites, messages, attachments, polls } = services;
   const router = Router();
   router.use(requireAuth);
 
@@ -91,7 +102,7 @@ export function roomsRoutes(
 
   room.get("/messages", async (req, res) => {
     const cursor = parse(messagesQuerySchema, req.query);
-    res.json(await messages.page(req.room!.id, cursor));
+    res.json(await messages.page(req.user!.id, req.room!.id, cursor));
   });
 
   room.post("/messages", async (req, res) => {
@@ -108,6 +119,31 @@ export function roomsRoutes(
   room.delete("/messages/:messageId", async (req, res) => {
     const messageId = idParam(req.params.messageId, "Invalid message id");
     res.json(await messages.remove(actorOf(req), req.room!, messageId));
+  });
+
+  /** Only the room owner may post a poll; it arrives as a message of kind "poll". */
+  room.post("/polls", async (req, res) => {
+    const input = parse(createPollSchema, req.body);
+    res.status(201).json(await polls.create(actorOf(req), req.room!, input));
+  });
+
+  /** Replaces the caller's vote; `optionIds: []` takes it back. */
+  room.put("/polls/:messageId/votes", async (req, res) => {
+    const messageId = idParam(req.params.messageId, "Invalid poll id");
+    const { optionIds } = parse(pollVoteSchema, req.body);
+    res.json(await polls.vote(actorOf(req), req.room!.id, messageId, optionIds));
+  });
+
+  room.post("/polls/:messageId/options", async (req, res) => {
+    const messageId = idParam(req.params.messageId, "Invalid poll id");
+    const { text } = parse(pollOptionSchema, req.body);
+    res.status(201).json(await polls.addOption(actorOf(req), req.room!.id, messageId, text));
+  });
+
+  room.post("/polls/:messageId/comments", async (req, res) => {
+    const messageId = idParam(req.params.messageId, "Invalid poll id");
+    const { text } = parse(pollCommentSchema, req.body);
+    res.status(201).json(await polls.comment(actorOf(req), req.room!.id, messageId, text));
   });
 
   room.post("/receipts", async (req, res) => {

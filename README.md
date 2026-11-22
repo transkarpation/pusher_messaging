@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms, invitations, messages (editable and deletable) with file attachments, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
+Real-time chat with rooms, invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
 
 ## Stack
 
@@ -136,8 +136,8 @@ Modules use each other only through the facade exported from their `index.ts`, n
 | Channel | Events |
 |---|---|
 | `presence-online` | who is online, profile updates |
-| `private-user-{id}` | invitations received or gone, the user joined or was removed from a room |
-| `private-room-{id}` | new, edited and deleted messages, typing, receipts, member and invite changes |
+| `private-user-{id}` | invitations received or gone, the user joined or was removed from a room, their own poll votes (for their other tabs) |
+| `private-room-{id}` | new, edited and deleted messages, poll results, typing, receipts, member and invite changes |
 
 Each `subscribe` is checked by `RealtimeService`: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. Each connection has a socket id; clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
 
@@ -179,6 +179,28 @@ The invitee gets `invitation:added` / `invitation:removed` on their user channel
 - `DELETE /api/rooms/:id/messages/:messageId`. The author can delete their own messages, and the room owner can delete any message in the room. Deletion is soft: the row stays, with `deletedAt` set and the text wiped. The UI shows a placeholder ("This message was deleted", or "You deleted this message" for the author). Deleted messages can't be edited and don't count as unread.
 
 Both endpoints return the updated `Message` and broadcast it on the room channel as `message:updated` or `message:deleted`. Since a message may arrive from a fetch and from an event in either order, the client keeps the most recent copy: a deletion beats any edit, and otherwise the later `editedAt` wins (`latestVersion` in `apps/client/src/lib/messageVersion.ts`).
+
+## Polls
+
+The room owner posts a poll with the 📊 button next to the composer. The form takes a question and 2–12 options (drag the handle to reorder them), plus:
+
+| Setting | Effect |
+|---|---|
+| Multiple votes | voters may pick more than one option |
+| Limit votes per person | with multiple votes: at most 2–10 options each |
+| Anonymous poll | nobody, the owner included, sees who voted for what; only the counts |
+| Suggest an option | members may add options of their own (the owner always can) |
+| Add a comment | members may comment under the poll |
+
+A poll is a message of kind `poll` with the poll in `Message.poll`. It shows up in the timeline, the room preview and the unread count like any message, and is deleted like one: by the owner, which also deletes its votes and comments. It can't be edited.
+
+- `POST /api/rooms/:id/polls` creates it (owner only, `403` otherwise) and broadcasts `message:created`.
+- `PUT /api/rooms/:id/polls/:messageId/votes` with `{ "optionIds": [...] }` replaces the caller's vote; `[]` takes it back.
+- `POST /api/rooms/:id/polls/:messageId/options` and `.../comments` add an option or a comment, when the poll allows it.
+
+Each of the last three returns the `Poll` as the caller sees it, with their own choice in `myVotes`, and sends the poll's new state to the room as `poll:updated` (`PollState`: the same for everyone, so without `myVotes`). A vote also goes to the voter's own channel as `poll:voted`, for their other tabs. Every change bumps `poll.version` under a row lock, and clients keep the copy with the higher version, so a stale fetch or a late event can't roll the results back.
+
+Voters see the results (percentages of the people who voted, and who voted unless the poll is anonymous) once they have voted. The mobile app shows polls read-only for now.
 
 ## Recovering missed events after a reconnect
 

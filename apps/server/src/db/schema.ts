@@ -1,4 +1,5 @@
 import {
+  boolean,
   customType,
   index,
   integer,
@@ -100,7 +101,7 @@ export const roomInvites = pgTable(
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_invites_user_id_idx").on(t.userId)],
 );
 
-export const messageKind = pgEnum("message_kind", ["text", "member_joined", "member_left"]);
+export const messageKind = pgEnum("message_kind", ["text", "member_joined", "member_left", "poll"]);
 
 export const messages = pgTable(
   "messages",
@@ -173,3 +174,70 @@ export const attachmentData = pgTable("attachment_data", {
     .references(() => attachments.id, { onDelete: "cascade" }),
   data: bytea("data").notNull(),
 });
+
+/**
+ * A poll posted by a room owner, as a message of kind "poll" (one poll per message). Deleting
+ * the message deletes this row, and with it the options, votes and comments.
+ */
+export const polls = pgTable("polls", {
+  messageId: integer("message_id")
+    .primaryKey()
+    .references(() => messages.id, { onDelete: "cascade" }),
+  question: varchar("question", { length: 300 }).notNull(),
+  multiple: boolean("multiple").notNull().default(false),
+  /** With `multiple`: at most this many options per person (null: any number). */
+  maxVotes: smallint("max_votes"),
+  anonymous: boolean("anonymous").notNull().default(false),
+  allowSuggestions: boolean("allow_suggestions").notNull().default(false),
+  allowComments: boolean("allow_comments").notNull().default(false),
+  /** Bumped on every vote, new option or comment, so clients can tell a stale copy from a newer one. */
+  version: integer("version").notNull().default(0),
+});
+
+export const pollOptions = pgTable(
+  "poll_options",
+  {
+    id: serial("id").primaryKey(),
+    messageId: integer("message_id")
+      .notNull()
+      .references(() => polls.messageId, { onDelete: "cascade" }),
+    text: varchar("text", { length: 100 }).notNull(),
+    position: smallint("position").notNull(),
+    /** Who added it: the poll's author, or a member suggesting it. */
+    addedBy: integer("added_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [index("poll_options_message_id_idx").on(t.messageId)],
+);
+
+export const pollVotes = pgTable(
+  "poll_votes",
+  {
+    optionId: integer("option_id")
+      .notNull()
+      .references(() => pollOptions.id, { onDelete: "cascade" }),
+    messageId: integer("message_id")
+      .notNull()
+      .references(() => polls.messageId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.optionId, t.userId] }), index("poll_votes_message_id_idx").on(t.messageId, t.userId)],
+);
+
+export const pollComments = pgTable(
+  "poll_comments",
+  {
+    id: serial("id").primaryKey(),
+    messageId: integer("message_id")
+      .notNull()
+      .references(() => polls.messageId, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    text: varchar("text", { length: 500 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("poll_comments_message_id_idx").on(t.messageId)],
+);

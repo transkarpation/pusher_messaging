@@ -19,7 +19,19 @@ import { hashPassword } from "../src/modules/auth/password.js";
 type Line =
   | [Username, string, number]
   | [Username, string, number, { edited?: boolean; deleted?: boolean }]
-  | ["joined" | "left", Username, number];
+  | ["joined" | "left", Username, number]
+  | ["poll", Username, number, DemoPoll];
+
+/** A poll posted by the room owner: options with who voted for them, and comments. */
+interface DemoPoll {
+  question: string;
+  options: [text: string, voters: Username[]][];
+  multiple?: boolean;
+  anonymous?: boolean;
+  allowSuggestions?: boolean;
+  allowComments?: boolean;
+  comments?: [Username, string][];
+}
 
 interface RoomSpec {
   name: string;
@@ -93,6 +105,23 @@ const ROOMS: RoomSpec[] = [
       ["sofia", "Звісно!", 2],
       day(1, "21:05"),
       ["taras", "Прогноз: сонячно, +12", 0],
+      [
+        "poll",
+        "sofia",
+        6,
+        {
+          question: "Що готуємо ввечері біля вогнища?",
+          options: [
+            ["Шашлик", ["sofia", "taras", "kateryna"]],
+            ["Банош", ["olena", "taras"]],
+            ["Печена картопля", ["kateryna"]],
+          ],
+          multiple: true,
+          allowSuggestions: true,
+          allowComments: true,
+          comments: [["taras", "Банош обов'язково 😋"]],
+        },
+      ],
       ["olena", "Беріть теплі речі, ввечері буде холодно", 4],
       ["left", "dmytro", 40],
       ["sofia", "Дмитро не зможе, захворів 😔", 3],
@@ -246,13 +275,15 @@ async function clean(): Promise<number> {
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type MessageRow = typeof schema.messages.$inferInsert;
+/** A message to insert, by username, with its poll if it's one. */
+type ScriptRow = Omit<MessageRow, "roomId" | "userId"> & { author: Username; poll?: DemoPoll };
 
 /** Inserts a room with its members and messages (in order), and sets receipts. */
 async function insertRoom(
   tx: Tx,
   ids: Record<Username, number>,
   spec: { name: string; owner: Username; members: Username[]; createdAt: Date },
-  messages: (Omit<MessageRow, "roomId" | "userId"> & { author: Username })[],
+  messages: ScriptRow[],
   opts: { invites?: [Username, Username][]; unread?: Partial<Record<Username, number>> } = {},
 ) {
   const [room] = await tx
@@ -281,9 +312,13 @@ async function insertRoom(
       ? []
       : await tx
           .insert(schema.messages)
-          .values(messages.map(({ author, ...m }) => ({ ...m, roomId, userId: ids[author] })))
+          .values(messages.map(({ author, poll: _, ...m }) => ({ ...m, roomId, userId: ids[author] })))
           .returning({ id: schema.messages.id });
   const msgIds = inserted.map((r) => r.id);
+
+  for (const [i, m] of messages.entries()) {
+    if (m.poll) await insertPoll(tx, ids, msgIds[i]!, m.author, m.poll, m.createdAt as Date);
+  }
 
   if (msgIds.length > 0) {
     const last = msgIds[msgIds.length - 1]!;
@@ -303,13 +338,37 @@ async function insertRoom(
   }
 }
 
+async function insertPoll(tx: Tx, ids: Record<Username, number>, messageId: number, author: Username, poll: DemoPoll, at: Date) {
+  const { question, options, comments = [], ...flags } = poll;
+  await tx.insert(schema.polls).values({ messageId, question, ...flags, version: 1 });
+  const optionRows = await tx
+    .insert(schema.pollOptions)
+    .values(options.map(([text], position) => ({ messageId, text, position, addedBy: ids[author] })))
+    .returning({ id: schema.pollOptions.id });
+  const votes = options.flatMap(([, voters], i) =>
+    voters.map((u, n) => ({ optionId: optionRows[i]!.id, messageId, userId: ids[u], createdAt: addMinutes(at, 1 + n) })),
+  );
+  if (votes.length) await tx.insert(schema.pollVotes).values(votes);
+  if (comments.length) {
+    await tx
+      .insert(schema.pollComments)
+      .values(comments.map(([u, text], n) => ({ messageId, userId: ids[u], text, createdAt: addMinutes(at, 5 + n) })));
+  }
+}
+
 /** Turns a script into message rows with absolute timestamps. */
 function scriptToMessages(spec: RoomSpec) {
   let at = addMinutes(dateAt(spec.createdDaysAgo, "09:00"), 0);
-  const rows: (Omit<MessageRow, "roomId" | "userId"> & { author: Username })[] = [];
+  const rows: ScriptRow[] = [];
   for (const item of spec.script) {
     if (!Array.isArray(item)) {
       at = dateAt(item.daysAgo, item.at);
+      continue;
+    }
+    if (item[0] === "poll") {
+      const [, who, after, poll] = item;
+      at = addMinutes(at, after);
+      rows.push({ author: who, kind: "poll", text: "", createdAt: at, poll });
       continue;
     }
     if (item[0] === "joined" || item[0] === "left") {

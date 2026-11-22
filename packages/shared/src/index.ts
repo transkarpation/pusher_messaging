@@ -119,10 +119,14 @@ export const AVATAR_SIZE = 256;
 
 /**
  * "text": a regular message written by `author`.
+ * "poll": a poll posted by `author` (the room owner), in `Message.poll`; `text` is "".
  * System lines, where `author` is who it's about and `text` is "":
  * "member_joined": accepted an invite; "member_left": left the room.
  */
-export type MessageKind = "text" | "member_joined" | "member_left";
+export type MessageKind = "text" | "poll" | "member_joined" | "member_left";
+
+/** "Bob joined the room" and the like, as opposed to messages someone wrote (text and polls). */
+export const isSystemMessage = (m: { kind: MessageKind }) => m.kind === "member_joined" || m.kind === "member_left";
 
 /** A file attached to a message. */
 export interface Attachment {
@@ -153,6 +157,101 @@ export interface Message {
   /** Set once the message is deleted; it stays as a placeholder and `text` is "". */
   deletedAt: string | null;
   author: User;
+  /** The poll of a "poll" message; null for other kinds and once the poll is deleted. */
+  poll: Poll | null;
+}
+
+// ---- Polls ----------------------------------------------------------------
+
+export const POLL_MIN_OPTIONS = 2;
+export const POLL_MAX_OPTIONS = 12;
+/** Bounds of `maxVotes`, the optional per-person limit of a multiple-choice poll. */
+export const POLL_VOTE_LIMIT_MIN = 2;
+export const POLL_VOTE_LIMIT_MAX = 10;
+
+const pollOptionText = z.string().trim().min(1, "Options can't be empty").max(100, "An option is too long");
+const sameText = (a: string, b: string) => a.toLocaleLowerCase() === b.toLocaleLowerCase();
+
+/** Body of POST /rooms/:id/polls (room owner only). */
+export const createPollSchema = z
+  .object({
+    question: z.string().trim().min(1, "Question is required").max(300, "Question is too long"),
+    options: z
+      .array(pollOptionText)
+      .min(POLL_MIN_OPTIONS, `Add at least ${POLL_MIN_OPTIONS} options`)
+      .max(POLL_MAX_OPTIONS, `At most ${POLL_MAX_OPTIONS} options`),
+    /** Voters may pick more than one option. */
+    multiple: z.boolean().default(false),
+    /** With `multiple`: at most this many options per person; null for no limit. */
+    maxVotes: z.number().int().min(POLL_VOTE_LIMIT_MIN).max(POLL_VOTE_LIMIT_MAX).nullable().default(null),
+    /** Nobody, the author included, sees who voted for what. */
+    anonymous: z.boolean().default(false),
+    /** Members may add options of their own. */
+    allowSuggestions: z.boolean().default(false),
+    /** Members may comment on the poll. */
+    allowComments: z.boolean().default(false),
+  })
+  .refine((p) => p.options.every((o, i) => p.options.findIndex((x) => sameText(x, o)) === i), {
+    message: "Options must be different",
+  })
+  .refine((p) => p.maxVotes === null || p.multiple, { message: "A vote limit needs multiple votes" });
+export type CreatePollInput = z.input<typeof createPollSchema>;
+
+/** Body of PUT /rooms/:id/polls/:messageId/votes: the caller's whole choice; [] takes the vote back. */
+export const pollVoteSchema = z.object({
+  optionIds: z.array(z.number().int().positive()).max(POLL_MAX_OPTIONS, "Too many options"),
+});
+export type PollVoteInput = z.infer<typeof pollVoteSchema>;
+
+/** Body of POST /rooms/:id/polls/:messageId/options. */
+export const pollOptionSchema = z.object({ text: pollOptionText });
+export type PollOptionInput = z.infer<typeof pollOptionSchema>;
+
+/** Body of POST /rooms/:id/polls/:messageId/comments. */
+export const pollCommentSchema = z.object({
+  text: z.string().trim().min(1, "Comment is empty").max(500, "Comment is too long"),
+});
+export type PollCommentInput = z.infer<typeof pollCommentSchema>;
+
+export interface PollOption {
+  id: number;
+  text: string;
+  voteCount: number;
+  /** Who voted for it, earliest first; always empty in an anonymous poll. */
+  voters: User[];
+  /** Who added it (the author, or a member suggesting it); null if that account is gone. */
+  addedBy: User | null;
+}
+
+export interface PollComment {
+  id: number;
+  author: User;
+  text: string;
+  createdAt: string;
+}
+
+/** A poll as everyone in the room sees it (what POLL_UPDATED_EVENT carries). */
+export interface PollState {
+  question: string;
+  multiple: boolean;
+  maxVotes: number | null;
+  anonymous: boolean;
+  allowSuggestions: boolean;
+  allowComments: boolean;
+  /** In the order the author gave, suggestions after them. */
+  options: PollOption[];
+  /** People who voted (for any number of options); percentages are of this. */
+  voterCount: number;
+  /** Oldest first. */
+  comments: PollComment[];
+  /** Grows with every change; of two copies of a poll, the higher version is newer. */
+  version: number;
+}
+
+/** A poll as the current user sees it. */
+export interface Poll extends PollState {
+  /** Options the current user voted for; empty if they haven't voted. */
+  myVotes: number[];
 }
 
 export type RoomRole = "owner" | "member";
@@ -294,6 +393,8 @@ export const USER_TYPING_EVENT = "user:typing";
 export const RECEIPT_UPDATED_EVENT = "receipt:updated";
 export const ROOM_MEMBERS_EVENT = "room:members";
 export const ROOM_INVITES_EVENT = "room:invites";
+/** Carries `PollUpdatedEvent`: a poll got a vote, an option or a comment. */
+export const POLL_UPDATED_EVENT = "poll:updated";
 // user channel events
 export const ROOM_ADDED_EVENT = "room:added";
 export const ROOM_REMOVED_EVENT = "room:removed";
@@ -301,6 +402,8 @@ export const INVITATION_ADDED_EVENT = "invitation:added";
 export const INVITATION_REMOVED_EVENT = "invitation:removed";
 /** Carries `BlocksEvent`: the user's whole block list after a change (for their other tabs). */
 export const BLOCKS_UPDATED_EVENT = "blocks:updated";
+/** Carries `PollVotedEvent`: the user's own vote changed (for their other tabs). */
+export const POLL_VOTED_EVENT = "poll:voted";
 // online channel events
 export const USER_UPDATED_EVENT = "user:updated";
 
@@ -331,6 +434,18 @@ export interface BlocksEvent {
 export interface RoomInvitesEvent {
   roomId: number;
   invites: RoomInvite[];
+}
+
+export interface PollUpdatedEvent {
+  roomId: number;
+  messageId: number;
+  poll: PollState;
+}
+
+export interface PollVotedEvent {
+  roomId: number;
+  messageId: number;
+  myVotes: number[];
 }
 
 /** INVITATION_ADDED_EVENT carries an `Invitation`; this one says it's gone (accepted, declined or cancelled). */

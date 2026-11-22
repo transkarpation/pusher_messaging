@@ -8,6 +8,8 @@ import {
   INVITATION_ADDED_EVENT,
   INVITATION_REMOVED_EVENT,
   ONLINE_CHANNEL,
+  POLL_UPDATED_EVENT,
+  POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
@@ -21,6 +23,8 @@ import {
   type Invitation,
   type InvitationRemovedEvent,
   type Message,
+  type PollUpdatedEvent,
+  type PollVotedEvent,
   type PresenceMember,
   type Receipt,
   type Room,
@@ -90,6 +94,7 @@ export function useRealtime(me: User) {
       },
       [MESSAGE_UPDATED_EVENT]: (m: Message) => messages.applyUpdate(m),
       [MESSAGE_DELETED_EVENT]: (m: Message) => messages.applyDelete(m, me.id),
+      [POLL_UPDATED_EVENT]: (e: PollUpdatedEvent) => messages.applyPoll(e),
       [USER_TYPING_EVENT]: (e: TypingEvent) => {
         if (e.typing) typing.start(roomId, e.userId);
         else typing.stop(roomId, e.userId);
@@ -147,6 +152,7 @@ export function useRealtime(me: User) {
           [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
           [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
           [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
+          [POLL_VOTED_EVENT]: (e: PollVotedEvent) => messages.applyMyVotes(e),
         } satisfies Handlers);
         // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
         onResubscribed(mine, () => {
