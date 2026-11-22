@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { POLL_MAX_OPTIONS, POLL_VOTE_LIMIT_MAX, POLL_VOTE_LIMIT_MIN, createPollSchema, type Message } from "@pm/shared";
 import { api } from "../lib/api";
-import { colors } from "../lib/theme";
+import { useColors, useStyles, type Colors } from "../lib/theme";
 
 /** An option being written; `key` stays the same while it's edited and moved. */
 interface DraftOption {
@@ -49,6 +49,7 @@ export function CreatePollModal({
   onClose: () => void;
   onCreated: (message: Message) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState<DraftOption[]>([]);
   /** What's typed in "Add an option"; it becomes an option on Enter or when the field loses focus. */
@@ -234,6 +235,8 @@ export function CreatePollModal({
 }
 
 function Toggle(props: { label: string; hint: string; value: boolean; disabled?: boolean; onChange: (on: boolean) => void }) {
+  const styles = useStyles(makeStyles);
+  const colors = useColors();
   return (
     <View style={[styles.toggleRow, props.disabled && styles.disabled]}>
       <View style={styles.toggleText}>
@@ -252,6 +255,7 @@ function Toggle(props: { label: string; hint: string; value: boolean; disabled?:
 }
 
 function IconButton(props: { label: string; accessibilityLabel: string; disabled?: boolean; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
   return (
     <Pressable
       style={({ pressed }) => [styles.iconButton, pressed && styles.pressed, props.disabled && styles.disabled]}
@@ -266,7 +270,8 @@ function IconButton(props: { label: string; accessibilityLabel: string; disabled
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: "row",

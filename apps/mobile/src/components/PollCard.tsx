@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { POLL_MAX_OPTIONS, type Message, type Poll, type PollOption } from "@pm/shared";
 import { api } from "../lib/api";
 import { displayName } from "../lib/format";
-import { colors } from "../lib/theme";
+import { useStyles, type Colors } from "../lib/theme";
 
 /** Voters named next to an option's result; the rest are only counted. */
 const VOTER_NAMES = 3;
@@ -17,6 +17,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * `onPoll` gets the poll the server returned after this user's vote, suggestion or comment.
  */
 export function PollCard({ message, meId, onPoll }: { message: Message; meId: number; onPoll: (poll: Poll) => void }) {
+  const styles = useStyles(makeStyles);
   const poll = message.poll!;
   /** Options ticked in a multiple-answer poll, not sent yet. */
   const [picked, setPicked] = useState<number[]>([]);
@@ -209,6 +210,7 @@ export function PollCard({ message, meId, onPoll }: { message: Message; meId: nu
 }
 
 function SmallButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
   return (
     <Pressable style={[styles.button, disabled && styles.disabled]} disabled={disabled} onPress={onPress}>
       <Text style={styles.buttonText}>{label}</Text>
@@ -216,7 +218,8 @@ function SmallButton({ label, disabled, onPress }: { label: string; disabled?: b
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   poll: { gap: 6, minWidth: 240 },
   question: { fontSize: 16, fontWeight: "600", color: colors.text },
   small: { fontSize: 12, color: colors.muted },
@@ -262,7 +265,7 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
   spacer: { flex: 1 },
   button: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: colors.accent },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  buttonText: { color: colors.onAccent, fontWeight: "600", fontSize: 14 },
   error: { color: colors.error, fontSize: 13 },
   comments: { gap: 6, marginTop: 2 },
   comment: { fontSize: 14, color: colors.text },

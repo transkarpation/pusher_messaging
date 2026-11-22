@@ -3,12 +3,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import type { SeedAccount } from "@pm/shared";
 import { api } from "../lib/api";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { useStyles, type Colors } from "../lib/theme";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; accounts: SeedAccount[] };
 
 /** Dev builds only: the demo accounts from `pnpm db:seed`, each signed in with one tap (like /seeds on the web). */
 export function DemoAccounts() {
+  const styles = useStyles(makeStyles);
   const signIn = useSession((s) => s.signIn);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [busy, setBusy] = useState<string | null>(null);
@@ -69,7 +70,8 @@ export function DemoAccounts() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   card: { gap: 4, padding: 20, borderRadius: 12, backgroundColor: colors.card },
   title: { fontSize: 17, fontWeight: "600", color: colors.text, marginBottom: 4 },
   row: {

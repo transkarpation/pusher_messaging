@@ -4,9 +4,11 @@ import { credentialsSchema } from "@pm/shared";
 import { DemoAccounts } from "../components/DemoAccounts";
 import { API_URL } from "../lib/config";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { useColors, useStyles, type Colors } from "../lib/theme";
 
 export default function LoginScreen() {
+  const styles = useStyles(makeStyles);
+  const colors = useColors();
   const signIn = useSession((s) => s.signIn);
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
@@ -52,7 +54,7 @@ export default function LoginScreen() {
           />
           {error && <Text style={styles.error}>{error}</Text>}
           <Pressable style={[styles.button, busy && styles.disabled]} disabled={busy} onPress={() => void submit()}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{mode === "login" ? "Sign in" : "Sign up"}</Text>}
+            {busy ? <ActivityIndicator color={colors.onAccent} /> : <Text style={styles.buttonText}>{mode === "login" ? "Sign in" : "Sign up"}</Text>}
           </Pressable>
           <Pressable onPress={() => setMode(mode === "login" ? "register" : "login")}>
             <Text style={styles.link}>{mode === "login" ? "No account? Sign up" : "Have an account? Sign in"}</Text>
@@ -65,7 +67,8 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { flexGrow: 1, justifyContent: "center", gap: 16, padding: 16, paddingTop: 48 },
   card: { gap: 12, padding: 20, borderRadius: 12, backgroundColor: colors.card },
@@ -82,7 +85,7 @@ const styles = StyleSheet.create({
   error: { color: colors.error },
   button: { alignItems: "center", paddingVertical: 12, borderRadius: 8, backgroundColor: colors.accent },
   disabled: { opacity: 0.6 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  buttonText: { color: colors.onAccent, fontSize: 16, fontWeight: "600" },
   link: { color: colors.accent, textAlign: "center" },
   server: { color: colors.muted, fontSize: 12, textAlign: "center" },
 });

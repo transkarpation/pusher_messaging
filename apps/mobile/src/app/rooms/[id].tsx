@@ -41,7 +41,7 @@ import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
 import { getRealtime, listen } from "../../lib/realtime";
 import { useSession } from "../../lib/session";
-import { colors } from "../../lib/theme";
+import { useStyles, type Colors } from "../../lib/theme";
 
 /** Merges by id, newest first (the list is inverted, so index 0 is at the bottom). */
 const merge = (a: Message[], b: Message[]) => {
@@ -71,6 +71,7 @@ function useAppActive() {
 const NEAR_BOTTOM_THRESHOLD = 80;
 
 export default function RoomScreen() {
+  const styles = useStyles(makeStyles);
   const { id, name, owner } = useLocalSearchParams<{ id: string; name?: string; owner?: string }>();
   const roomId = Number(id);
   const me = useSession((s) => s.user)!;
@@ -317,6 +318,7 @@ function MessageItem({
   delivery?: MessageDelivery;
   onPoll: (messageId: number, poll: Poll) => void;
 }) {
+  const styles = useStyles(makeStyles);
   const own = m.author.id === meId;
   if (isSystemMessage(m)) {
     const who = own ? "You" : displayName(m.author);
@@ -358,6 +360,7 @@ const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 
 /** ✓ saved on the server, grey ✓✓ delivered to someone's device, blue ✓✓ read by someone (as on the web). */
 function DeliveryStatus({ delivery: d }: { delivery: MessageDelivery }) {
+  const styles = useStyles(makeStyles);
   const label =
     d.status === "read"
       ? `Read by ${people(d.readCount)}, delivered to ${people(d.deliveredCount)}`
@@ -371,7 +374,8 @@ function DeliveryStatus({ delivery: d }: { delivery: MessageDelivery }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   loading: { margin: 16 },
   listWrap: { flex: 1 },
@@ -401,7 +405,7 @@ const styles = StyleSheet.create({
   jumpPressed: { opacity: 0.8 },
   jumpLabel: { fontSize: 13, fontWeight: "600", color: colors.text },
   jumpArrow: { fontSize: 18, lineHeight: 20, color: colors.text },
-  jumpTextUnseen: { color: "#fff" },
+  jumpTextUnseen: { color: colors.onAccent },
   bubble: { maxWidth: "80%", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, gap: 4 },
   own: { alignSelf: "flex-end", backgroundColor: colors.own, borderBottomRightRadius: 4 },
   other: { alignSelf: "flex-start", backgroundColor: colors.card, borderBottomLeftRadius: 4 },
@@ -441,5 +445,5 @@ const styles = StyleSheet.create({
   },
   send: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, backgroundColor: colors.accent },
   disabled: { opacity: 0.5 },
-  sendText: { color: "#fff", fontWeight: "600" },
+  sendText: { color: colors.onAccent, fontWeight: "600" },
 });

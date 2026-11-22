@@ -18,7 +18,7 @@ import { api } from "../lib/api";
 import { preview } from "../lib/format";
 import { getRealtime, listen } from "../lib/realtime";
 import { useSession } from "../lib/session";
-import { colors } from "../lib/theme";
+import { useStyles, type Colors } from "../lib/theme";
 
 /** Waits this long (ms) after a change before reloading the list, so a burst of messages reloads it once. */
 const RELOAD_DELAY = 300;
@@ -34,6 +34,7 @@ function reportDelivered(rooms: Room[]) {
 }
 
 export default function RoomsScreen() {
+  const styles = useStyles(makeStyles);
   const me = useSession((s) => s.user)!;
   const signOut = useSession((s) => s.signOut);
   const [rooms, setRooms] = useState<Room[] | null>(null);
@@ -169,7 +170,8 @@ export default function RoomsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
   headerButton: { color: colors.accent, fontSize: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: colors.card },
   pressed: { opacity: 0.7 },
@@ -177,7 +179,7 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: "600", color: colors.text },
   preview: { color: colors.muted },
   badge: { minWidth: 22, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 11, backgroundColor: colors.accent },
-  badgeText: { color: "#fff", fontSize: 12, fontWeight: "600", textAlign: "center" },
+  badgeText: { color: colors.onAccent, fontSize: 12, fontWeight: "600", textAlign: "center" },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   error: { color: colors.error, padding: 16 },
   empty: { color: colors.muted, padding: 16, textAlign: "center" },
