@@ -3,6 +3,7 @@ import {
   resolveApiUrl,
   type AuthRequest,
   type CreateMessageInput,
+  type CreateRoomInput,
   type CreatePollInput,
   type Message,
   type MessagesResponse,
@@ -83,6 +84,9 @@ export const api = {
   me: () => request<{ user: User | null }>("/auth/me"),
 
   getRooms: () => request<Room[]>("/rooms"),
+  /** The new room, with the current user as its owner; invitees join once they accept. */
+  createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
+  searchUsers: (q: string) => request<User[]>(`/users?q=${encodeURIComponent(q)}`),
   getMessages: (roomId: number, before?: number) =>
     request<MessagesResponse>(`${room(roomId)}/messages${before !== undefined ? `?before=${before}` : ""}`),
   createMessage: (roomId: number, input: CreateMessageInput) =>

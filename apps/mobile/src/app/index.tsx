@@ -15,6 +15,7 @@ import {
   type Receipt,
   type Room,
 } from "@pm/shared";
+import { CreateRoomModal } from "../components/CreateRoomModal";
 import { RoomAvatar } from "../components/RoomAvatar";
 import { api } from "../lib/api";
 import { preview } from "../lib/format";
@@ -42,6 +43,17 @@ export default function RoomsScreen() {
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const openRoom = (room: Room) =>
+    router.push({
+      pathname: "/rooms/[id]",
+      params: {
+        id: String(room.id),
+        name: room.name,
+        owner: room.members.some((m) => m.user.id === me.id && m.role === "owner") ? "1" : "0",
+      },
+    });
 
   const load = useCallback(async () => {
     try {
@@ -123,52 +135,63 @@ export default function RoomsScreen() {
           ),
         }}
       />
-      <FlatList
-        data={rooms ?? []}
-        keyExtractor={(r) => String(r.id)}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await load();
-              setRefreshing(false);
-            }}
-          />
-        }
-        ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
-        ListEmptyComponent={rooms ? <Text style={styles.empty}>No rooms yet. Create one on the web for now.</Text> : undefined}
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-            onPress={() =>
-              router.push({
-                pathname: "/rooms/[id]",
-                params: {
-                  id: String(item.id),
-                  name: item.name,
-                  owner: item.members.some((m) => m.user.id === me.id && m.role === "owner") ? "1" : "0",
-                },
-              })
-            }
-          >
-            <RoomAvatar room={item} />
-            <View style={styles.rowText}>
-              <Text style={styles.name} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={styles.preview} numberOfLines={1}>
-                {item.lastMessage ? preview(item.lastMessage, me.id) : `${item.members.length} members`}
-              </Text>
-            </View>
-            {item.unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text>
+      <View style={styles.screen}>
+        <FlatList
+          data={rooms ?? []}
+          keyExtractor={(r) => String(r.id)}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await load();
+                setRefreshing(false);
+              }}
+            />
+          }
+          ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
+          ListEmptyComponent={rooms ? <Text style={styles.empty}>No rooms yet. Tap + to create one.</Text> : undefined}
+          renderItem={({ item }) => (
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              onPress={() => openRoom(item)}
+            >
+              <RoomAvatar room={item} />
+              <View style={styles.rowText}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.preview} numberOfLines={1}>
+                  {item.lastMessage ? preview(item.lastMessage, me.id) : `${item.members.length} members`}
+                </Text>
               </View>
-            )}
-          </Pressable>
-        )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
+              {item.unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          )}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+          contentContainerStyle={styles.listContent}
+        />
+        <Pressable
+          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+          onPress={() => setCreating(true)}
+          accessibilityRole="button"
+          accessibilityLabel="New room"
+        >
+          <Text style={styles.fabIcon}>+</Text>
+        </Pressable>
+      </View>
+      <CreateRoomModal
+        visible={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(room) => {
+          setCreating(false);
+          setRooms((list) => [room, ...(list ?? []).filter((r) => r.id !== room.id)]);
+          openRoom(room);
+        }}
       />
     </>
   );
@@ -176,6 +199,27 @@ export default function RoomsScreen() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+  screen: { flex: 1 },
+  /** Room for the last row to scroll out from under the floating button. */
+  listContent: { paddingBottom: 96 },
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.accent,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  fabPressed: { opacity: 0.85, transform: [{ scale: 0.96 }] },
+  fabIcon: { color: colors.onAccent, fontSize: 30, lineHeight: 32 },
   headerButton: { color: colors.accent, fontSize: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, backgroundColor: colors.card },
   pressed: { opacity: 0.7 },
