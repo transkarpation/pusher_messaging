@@ -6,10 +6,12 @@ import {
   type Message,
   type MessagesResponse,
   type PhoenixTokenResponse,
+  type Receipt,
   type RealtimeConfig,
   type Room,
   type SeedsResponse,
   type TokenAuthResponse,
+  type UpdateReceiptInput,
   type User,
 } from "@pm/shared";
 import { API_URL } from "./config";
@@ -77,6 +79,9 @@ export const api = {
     request<MessagesResponse>(`${room(roomId)}/messages${before !== undefined ? `?before=${before}` : ""}`),
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
+  /** Moves this user's delivered/read watermarks in a room forward; returns the resulting receipt. */
+  updateReceipt: (roomId: number, input: UpdateReceiptInput) =>
+    request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
   getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -18,12 +19,17 @@ import {
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
   POLL_UPDATED_EVENT,
+  RECEIPT_UPDATED_EVENT,
+  deliveryOf,
   isInlineImage,
   isSystemMessage,
+  mergeReceipt,
   roomChannel,
   type Message,
+  type MessageDelivery,
   type Poll,
   type PollUpdatedEvent,
+  type Receipt,
 } from "@pm/shared";
 import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
@@ -38,6 +44,26 @@ const merge = (a: Message[], b: Message[]) => {
   return [...byId.values()].sort((x, y) => y.id - x.id);
 };
 
+/** Adds receipts to a room's receipts by user id. */
+const mergeReceipts = (prev: Record<number, Receipt>, next: Receipt[]) => {
+  const out = { ...prev };
+  for (const r of next) out[r.userId] = mergeReceipt(out[r.userId], r);
+  return out;
+};
+
+/** Waits this long (ms) after the latest message changes before reporting it read, so a burst sends one request. */
+const READ_REPORT_DELAY = 300;
+
+/** True while the app is in the foreground, i.e. the open room is actually on screen. */
+function useAppActive() {
+  const [active, setActive] = useState(AppState.currentState === "active");
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => setActive(state === "active"));
+    return () => sub.remove();
+  }, []);
+  return active;
+}
+
 /** Within this distance (px) of the bottom the list counts as scrolled to the newest message. */
 const NEAR_BOTTOM_THRESHOLD = 80;
 
@@ -47,6 +73,11 @@ export default function RoomScreen() {
   const me = useSession((s) => s.user)!;
   const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<Message[]>([]);
+  /** Delivered/read watermarks in this room by user id: the ✓ / ✓✓ on my messages. */
+  const [receipts, setReceipts] = useState<Record<number, Receipt>>({});
+  const appActive = useAppActive();
+  /** Highest message id already reported as read from this screen. */
+  const reportedRead = useRef(0);
   const [loaded, setLoaded] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -68,6 +99,7 @@ export default function RoomScreen() {
       .then((page) => {
         if (cancelled) return;
         setMessages((prev) => merge(prev, page.messages));
+        setReceipts((prev) => mergeReceipts(prev, page.receipts));
         setHasMore(page.hasMore);
         setLoaded(true);
       })
@@ -77,7 +109,25 @@ export default function RoomScreen() {
     };
   }, [roomId]);
 
-  // New, edited and deleted messages from others, and poll results, live.
+  // Reports the newest message as read while the room is on screen (which also counts it as delivered).
+  const latestId = messages[0]?.id ?? 0;
+  useEffect(() => {
+    if (!loaded || !appActive || latestId <= reportedRead.current) return;
+    const timer = setTimeout(() => {
+      const previous = reportedRead.current;
+      reportedRead.current = latestId;
+      api
+        .updateReceipt(roomId, { readUpTo: latestId })
+        .then((r) => setReceipts((prev) => mergeReceipts(prev, [r])))
+        .catch((e) => {
+          reportedRead.current = previous; // retried when the next message arrives or the app comes back
+          console.warn("Failed to report read:", e);
+        });
+    }, READ_REPORT_DELAY);
+    return () => clearTimeout(timer);
+  }, [roomId, loaded, appActive, latestId]);
+
+  // New, edited and deleted messages from others, poll results and receipts, live.
   useEffect(() => {
     const channelName = roomChannel(roomId);
     const apply = (m: Message) => setMessages((prev) => merge(prev, [m]));
@@ -94,6 +144,7 @@ export default function RoomScreen() {
         });
         channel.bind(MESSAGE_UPDATED_EVENT, apply);
         channel.bind(MESSAGE_DELETED_EVENT, apply);
+        channel.bind(RECEIPT_UPDATED_EVENT, (r: Receipt) => setReceipts((prev) => mergeReceipts(prev, [r])));
         channel.bind(POLL_UPDATED_EVENT, (e: PollUpdatedEvent) =>
           setMessages((prev) =>
             prev.map((m) =>
@@ -121,6 +172,7 @@ export default function RoomScreen() {
     try {
       const page = await api.getMessages(roomId, oldest);
       setMessages((prev) => merge(prev, page.messages));
+      setReceipts((prev) => mergeReceipts(prev, page.receipts));
       setHasMore(page.hasMore);
     } catch (e) {
       setError((e as Error).message);
@@ -166,7 +218,10 @@ export default function RoomScreen() {
             onEndReached={() => void loadOlder()}
             onEndReachedThreshold={0.3}
             ListFooterComponent={loadingOlder ? <ActivityIndicator style={styles.loading} /> : undefined}
-            renderItem={({ item }) => <MessageItem message={item} meId={me.id} />}
+            renderItem={({ item }) => (
+              <MessageItem message={item} meId={me.id} delivery={item.author.id === me.id ? deliveryOf(item, receipts) : undefined} />
+            )}
+            extraData={receipts}
             // The list is inverted, so "top" here is the bottom of the chat: new messages keep
             // the view still while scrolled up, and follow along when already near the bottom.
             maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: NEAR_BOTTOM_THRESHOLD }}
@@ -210,7 +265,7 @@ export default function RoomScreen() {
   );
 }
 
-function MessageItem({ message: m, meId }: { message: Message; meId: number }) {
+function MessageItem({ message: m, meId, delivery }: { message: Message; meId: number; delivery?: MessageDelivery }) {
   const own = m.author.id === meId;
   if (isSystemMessage(m)) {
     const who = own ? "You" : displayName(m.author);
@@ -237,11 +292,31 @@ function MessageItem({ message: m, meId }: { message: Message; meId: number }) {
           {m.poll && <PollSummary poll={m.poll} />}
         </>
       )}
-      <Text style={styles.meta}>
-        {m.editedAt && !m.deletedAt ? "edited · " : ""}
-        {time(m.createdAt)}
-      </Text>
+      <View style={styles.metaRow}>
+        <Text style={styles.meta}>
+          {m.editedAt && !m.deletedAt ? "edited · " : ""}
+          {time(m.createdAt)}
+        </Text>
+        {delivery && !m.deletedAt && <DeliveryStatus delivery={delivery} />}
+      </View>
     </View>
+  );
+}
+
+const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
+
+/** ✓ saved on the server, grey ✓✓ delivered to someone's device, blue ✓✓ read by someone (as on the web). */
+function DeliveryStatus({ delivery: d }: { delivery: MessageDelivery }) {
+  const label =
+    d.status === "read"
+      ? `Read by ${people(d.readCount)}, delivered to ${people(d.deliveredCount)}`
+      : d.status === "delivered"
+        ? `Delivered to ${people(d.deliveredCount)}`
+        : "Sent";
+  return (
+    <Text style={[styles.status, d.status === "read" && styles.statusRead]} accessibilityLabel={label}>
+      {d.status === "sent" ? "✓" : "✓✓"}
+    </Text>
   );
 }
 
@@ -306,7 +381,10 @@ const styles = StyleSheet.create({
   deleted: { fontStyle: "italic", color: colors.muted },
   image: { width: 220, height: 160, borderRadius: 8, backgroundColor: colors.bubble },
   file: { color: colors.accent },
-  meta: { alignSelf: "flex-end", fontSize: 11, color: colors.muted },
+  metaRow: { flexDirection: "row", alignItems: "center", alignSelf: "flex-end", gap: 4 },
+  meta: { fontSize: 11, color: colors.muted },
+  status: { fontSize: 12, color: colors.muted, letterSpacing: -2, paddingRight: 2 },
+  statusRead: { color: colors.accent },
   poll: { gap: 4 },
   pollQuestion: { fontSize: 16, fontWeight: "600", color: colors.text },
   system: { alignSelf: "center", fontSize: 12, color: colors.muted, marginVertical: 4 },

@@ -272,6 +272,34 @@ export interface Receipt {
   readUpTo: number;
 }
 
+/** Where a saved message got to: saved on the server, delivered to someone's device, or read by someone. */
+export type ReceiptStatus = "sent" | "delivered" | "read";
+
+export interface MessageDelivery {
+  status: ReceiptStatus;
+  deliveredCount: number;
+  readCount: number;
+}
+
+/** Status of a saved message, from the room's receipts (by user id), counted over everyone except its author. */
+export function deliveryOf(message: { id: number; author: { id: number } }, receipts: Record<number, Receipt>): MessageDelivery {
+  let deliveredCount = 0;
+  let readCount = 0;
+  for (const r of Object.values(receipts)) {
+    if (r.userId === message.author.id) continue;
+    if (r.deliveredUpTo >= message.id) deliveredCount++;
+    if (r.readUpTo >= message.id) readCount++;
+  }
+  const status: ReceiptStatus = readCount > 0 ? "read" : deliveredCount > 0 ? "delivered" : "sent";
+  return { status, deliveredCount, readCount };
+}
+
+/** Merges two receipts of the same user: watermarks only move forward. */
+export const mergeReceipt = (prev: Receipt | undefined, next: Receipt): Receipt =>
+  prev
+    ? { ...next, deliveredUpTo: Math.max(prev.deliveredUpTo, next.deliveredUpTo), readUpTo: Math.max(prev.readUpTo, next.readUpTo) }
+    : next;
+
 /** A pending invite to a room, as members of that room see it. */
 export interface RoomInvite {
   user: User;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import {
+  mergeReceipt,
   type Attachment,
   type CreatePollInput,
   type Message,
@@ -116,16 +117,6 @@ const merge = (a: Message[], b: Message[]) => {
 
 /** Ids whose deletion was already applied, so the unread count isn't decremented twice. */
 const appliedDeletions = new Set<number>();
-
-/** Watermarks only move forward, so out-of-order events can't regress them. */
-const mergeReceipt = (prev: Receipt | undefined, next: Receipt): Receipt =>
-  prev
-    ? {
-        ...next,
-        deliveredUpTo: Math.max(prev.deliveredUpTo, next.deliveredUpTo),
-        readUpTo: Math.max(prev.readUpTo, next.readUpTo),
-      }
-    : next;
 
 let tempCounter = 0;
 

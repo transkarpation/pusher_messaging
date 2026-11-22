@@ -7,6 +7,16 @@ import { preview } from "../lib/format";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
+/** Tells the server the latest message of each room reached this device (shown to its author as ✓✓). */
+function reportDelivered(rooms: Room[]) {
+  for (const room of rooms) {
+    const latest = room.lastMessage?.id ?? 0;
+    if (latest > room.myReceipt.deliveredUpTo) {
+      api.updateReceipt(room.id, { deliveredUpTo: latest }).catch((e) => console.warn("Failed to report delivery:", e));
+    }
+  }
+}
+
 export default function RoomsScreen() {
   const me = useSession((s) => s.user)!;
   const signOut = useSession((s) => s.signOut);
@@ -16,7 +26,9 @@ export default function RoomsScreen() {
 
   const load = useCallback(async () => {
     try {
-      setRooms(await api.getRooms());
+      const list = await api.getRooms();
+      setRooms(list);
+      reportDelivered(list);
       setError(null);
     } catch (e) {
       setError((e as Error).message);

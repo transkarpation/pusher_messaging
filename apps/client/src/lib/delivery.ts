@@ -1,22 +1,10 @@
-import type { Message, Receipt } from "@pm/shared";
+import type { MessageDelivery, ReceiptStatus } from "@pm/shared";
 
-export type DeliveryStatus = "sending" | "failed" | "sent" | "delivered" | "read";
+export { deliveryOf } from "@pm/shared";
 
-export interface DeliveryInfo {
+/** A saved message's receipt status, or the state of one still being sent from this client. */
+export type DeliveryStatus = "sending" | "failed" | ReceiptStatus;
+
+export interface DeliveryInfo extends Omit<MessageDelivery, "status"> {
   status: DeliveryStatus;
-  deliveredCount: number;
-  readCount: number;
-}
-
-/** Status of a persisted message, counted over everyone except its author. */
-export function deliveryOf(message: Message, receipts: Record<number, Receipt>): DeliveryInfo {
-  let deliveredCount = 0;
-  let readCount = 0;
-  for (const r of Object.values(receipts)) {
-    if (r.userId === message.author.id) continue;
-    if (r.deliveredUpTo >= message.id) deliveredCount++;
-    if (r.readUpTo >= message.id) readCount++;
-  }
-  const status: DeliveryStatus = readCount > 0 ? "read" : deliveredCount > 0 ? "delivered" : "sent";
-  return { status, deliveredCount, readCount };
 }
