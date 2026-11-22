@@ -15,9 +15,11 @@ import {
 } from "./modules/chat/index.js";
 import type { RealtimeConfig } from "@pm/shared";
 import {
+  PhoenixGateway,
   PusherGateway,
   RealtimeService,
   WsGateway,
+  phoenixConfigFromEnv,
   pusherConfigFromEnv,
   realtimeDriverFromEnv,
   type RealtimePublisher,
@@ -32,13 +34,17 @@ import { DrizzleTransactor } from "./shared/transaction.js";
  * nothing else constructs them.
  */
 export function createContainer() {
-  // Realtime transport, chosen by REALTIME_DRIVER: the own WebSocket gateway or Pusher.
-  const pusher = realtimeDriverFromEnv() === "pusher" ? new PusherGateway(pusherConfigFromEnv()) : null;
-  const gateway = pusher ? null : new WsGateway();
-  const publisher: RealtimePublisher = pusher ?? gateway!;
+  // Realtime transport, chosen by REALTIME_DRIVER: the own WebSocket gateway, Pusher or the Phoenix server.
+  const driver = realtimeDriverFromEnv();
+  const pusher = driver === "pusher" ? new PusherGateway(pusherConfigFromEnv()) : null;
+  const phoenix = driver === "phoenix" ? new PhoenixGateway(phoenixConfigFromEnv()) : null;
+  const gateway = driver === "ws" ? new WsGateway() : null;
+  const publisher: RealtimePublisher = (pusher ?? phoenix ?? gateway)!;
   const realtimeConfig: RealtimeConfig = pusher
     ? { driver: "pusher", key: pusher.config.key, cluster: pusher.config.cluster }
-    : { driver: "ws" };
+    : phoenix
+      ? { driver: "phoenix", socketUrl: phoenix.config.socketUrl }
+      : { driver: "ws" };
   const tx = new DrizzleTransactor(db);
 
   const users = new UsersService(new DrizzleUsersRepository(db), publisher);
@@ -56,7 +62,7 @@ export function createContainer() {
   const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, views, events);
   const attachments = new AttachmentsService(attachmentsRepo);
 
-  const realtime = new RealtimeService(rooms);
+  const realtime = new RealtimeService(rooms, users);
   const seeds = new SeedsService(users, rooms, process.env.NODE_ENV !== "production");
 
   return {
@@ -71,6 +77,7 @@ export function createContainer() {
     /** The WebSocket gateway to attach to the HTTP server; null with the Pusher driver. */
     gateway,
     pusher,
+    phoenix,
     realtimeConfig,
     seeds,
   };

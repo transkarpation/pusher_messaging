@@ -1,15 +1,37 @@
 import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { RealtimeClient, createPusherConnection, type RealtimeConnection } from "@pm/realtime-client";
+import {
+  RealtimeClient,
+  createPhoenixConnection,
+  createPusherConnection,
+  withHost,
+  type RealtimeConnection,
+} from "@pm/realtime-client";
 import { PUSHER_AUTH_PATH, REALTIME_PATH, type RealtimeConfig } from "@pm/shared";
-import { api, authHeaders, setSocketId } from "./api";
+import { ApiRequestError, api, authHeaders, setSocketId } from "./api";
 import { API_URL } from "./config";
 
 let pending: Promise<RealtimeConnection> | null = null;
 let current: { conn: RealtimeConnection; stop: () => void } | null = null;
 
+/** A token for the Phoenix server, or null once the session is gone. */
+async function phoenixToken(): Promise<string | null> {
+  try {
+    return (await api.getPhoenixToken()).token;
+  } catch (err) {
+    if (err instanceof ApiRequestError && err.status === 401) return null;
+    throw err;
+  }
+}
+
 /** Opens a connection with the transport the server uses, authenticated with the Bearer token. */
 async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
+  if (config.driver === "phoenix") {
+    const { Socket, Presence } = await import("phoenix"); // loaded only for the Phoenix driver
+    // A dev config says localhost; reach Phoenix on the same host as the API (emulator, LAN).
+    const apiHost = API_URL.match(/^https?:\/\/([^/:]+)/)?.[1] ?? "localhost";
+    return createPhoenixConnection({ Socket, Presence, url: withHost(config.socketUrl, apiHost), getToken: phoenixToken });
+  }
   if (config.driver === "pusher") {
     const { default: Pusher } = await import("pusher-js/react-native"); // loaded only for the Pusher driver
     return createPusherConnection({
@@ -26,7 +48,7 @@ async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
 
 /**
  * The single realtime connection, opened on first use with the transport from
- * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket or Pusher).
+ * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket, Pusher or Phoenix).
  */
 export function getRealtime(): Promise<RealtimeConnection> {
   if (pending) return pending;

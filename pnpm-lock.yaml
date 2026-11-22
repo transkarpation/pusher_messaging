@@ -181,6 +181,9 @@ importers:
       '@pm/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      phoenix:
+        specifier: ^1.8.17
+        version: 1.8.17
       pusher-js:
         specifier: ^8.6.0
         version: 8.6.0
@@ -194,6 +197,9 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
+      '@types/phoenix':
+        specifier: ^1.6.8
+        version: 1.6.8
       '@types/react':
         specifier: ^19.3.0
         version: 19.3.0
@@ -236,6 +242,9 @@ importers:
       expo-status-bar:
         specifier: ~58.0.5
         version: 58.0.5(expo@58.0.26)(react-native@0.88.1(@babel/core@7.29.13(supports-color@8.1.1))(@react-native/metro-config@0.88.1(@babel/core@7.29.13(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
+      phoenix:
+        specifier: ^1.8.17
+        version: 1.8.17
       pusher-js:
         specifier: ^8.6.0
         version: 8.6.0
@@ -255,6 +264,9 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
+      '@types/phoenix':
+        specifier: ^1.6.8
+        version: 1.6.8
       '@types/react':
         specifier: ~19.3.0
         version: 19.3.0
@@ -1885,6 +1897,9 @@ packages:
   '@types/pg@8.23.1':
     resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
+  '@types/phoenix@1.6.8':
+    resolution: {integrity: sha512-8uBiGk2kDk+e0/9eq8CWuDG5VLrS50roV4doR3xn21/EL8olbWSi2TBNa/CFJS00VLOuawH/UGQQsn+2W8tNrA==}
+
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
 
@@ -3402,6 +3417,9 @@ packages:
 
   pgpass@1.0.5:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
+
+  phoenix@1.8.17:
+    resolution: {integrity: sha512-lu+Cnz+o6QGG3rmTg4rAJbnBLSEjKDTtkD3PeTC3DLBP0zjBfEmQ7yOZniMTRpmMowlrUVRfoC693xxv+Yqa4Q==}
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -5685,6 +5703,8 @@ snapshots:
       pg-protocol: 1.16.1
       pg-types: 2.2.0
 
+  '@types/phoenix@1.6.8': {}
+
   '@types/qs@6.15.1': {}
 
   '@types/range-parser@1.2.7': {}
@@ -7318,6 +7338,8 @@ snapshots:
   pgpass@1.0.5:
     dependencies:
       split2: 4.2.0
+
+  phoenix@1.8.17: {}
 
   picocolors@1.1.1: {}
 

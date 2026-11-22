@@ -2,6 +2,7 @@
 export type { ChannelGrant, RealtimePublisher } from "./realtime.publisher.js";
 export { RealtimeService } from "./realtime.service.js";
 export { realtimeRoutes } from "./realtime.routes.js";
-export { realtimeDriverFromEnv, pusherConfigFromEnv } from "./realtime.config.js";
+export { phoenixConfigFromEnv, pusherConfigFromEnv, realtimeDriverFromEnv } from "./realtime.config.js";
 export { WsGateway, type GatewayHooks } from "./ws.gateway.js";
 export { PusherGateway, type PusherConfig } from "./pusher.gateway.js";
+export { PhoenixGateway, type PhoenixConfig } from "./phoenix.gateway.js";

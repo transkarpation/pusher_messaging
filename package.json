@@ -10,7 +10,8 @@
     "db:generate": "pnpm --filter server db:generate",
     "db:migrate": "pnpm --filter server db:migrate",
     "db:seed": "pnpm --filter server db:seed",
-    "db:studio": "pnpm --filter server db:studio"
+    "db:studio": "pnpm --filter server db:studio",
+    "realtime:phoenix": "docker compose --profile phoenix up --build realtime-phoenix"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

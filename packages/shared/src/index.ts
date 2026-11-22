@@ -380,12 +380,25 @@ export const REALTIME_PATH = "/api/realtime/ws";
 
 /**
  * Which realtime transport the server uses (REALTIME_DRIVER in its .env), served by
- * GET /api/realtime/config: its own WebSocket endpoint, or Pusher Channels.
+ * GET /api/realtime/config: its own WebSocket endpoint, Pusher Channels, or the Phoenix
+ * server from apps/realtime-server-phoenix (`socketUrl` is its phoenix.js endpoint).
  */
-export type RealtimeConfig = { driver: "ws" } | { driver: "pusher"; key: string; cluster: string };
+export type RealtimeConfig =
+  | { driver: "ws" }
+  | { driver: "pusher"; key: string; cluster: string }
+  | { driver: "phoenix"; socketUrl: string };
 
 /** Endpoint pusher-js posts to for private and presence channel signatures (Pusher driver only). */
 export const PUSHER_AUTH_PATH = "/api/realtime/pusher/auth";
+
+/** Endpoint that issues the token a client connects to the Phoenix server with (Phoenix driver only). */
+export const PHOENIX_TOKEN_PATH = "/api/realtime/phoenix/token";
+
+export interface PhoenixTokenResponse {
+  /** Pass as the `token` connect param. */
+  token: string;
+  expiresAt: string;
+}
 
 /** Close code: no valid session (or a cookie session from another origin). Don't reconnect. */
 export const CLOSE_UNAUTHORIZED = 4001;

@@ -1,21 +1,23 @@
 import { Router } from "express";
 import type { RealtimeConfig } from "@pm/shared";
-import { badRequest } from "../../shared/errors.js";
+import { badRequest, unauthorized } from "../../shared/errors.js";
 import type { RequireAuth } from "../auth/index.js";
+import type { PhoenixGateway } from "./phoenix.gateway.js";
 import type { PusherGateway } from "./pusher.gateway.js";
 import type { RealtimeService } from "./realtime.service.js";
 
 /**
- * /api/realtime: which transport clients should use, and with the Pusher driver the
- * channel authorization endpoint for pusher-js. (The WebSocket endpoint itself is
- * attached to the HTTP server, not mounted here.)
+ * /api/realtime: which transport clients should use, plus what the active one needs:
+ * channel signatures for pusher-js, or connection tokens and the authorization callback
+ * for the Phoenix server. (The own WebSocket endpoint is attached to the HTTP server.)
  */
 export function realtimeRoutes(
   realtime: RealtimeService,
   config: RealtimeConfig,
-  pusher: PusherGateway | null,
+  gateways: { pusher: PusherGateway | null; phoenix: PhoenixGateway | null },
   requireAuth: RequireAuth,
 ) {
+  const { pusher, phoenix } = gateways;
   const router = Router();
 
   router.get("/config", (_req, res) => {
@@ -31,6 +33,20 @@ export function realtimeRoutes(
       }
       const grant = await realtime.authorize(req.user!, channel);
       res.json(pusher.sign(socketId, channel, grant));
+    });
+  }
+
+  if (phoenix) {
+    /** A token to connect to the Phoenix server with, for the signed-in user. */
+    router.get("/phoenix/token", requireAuth, (req, res) => {
+      const { token, expiresAt } = phoenix.issueToken(req.user!.id);
+      res.json({ token, expiresAt: expiresAt.toISOString() });
+    });
+
+    /** The Phoenix server asks whether `userId` may join `channel`; answers with the grant or 403. */
+    router.post("/phoenix/authorize", async (req, res) => {
+      if (!phoenix.isPhoenix(req.get("Authorization"))) throw unauthorized("Invalid shared secret");
+      res.json(await realtime.authorizeUserId(req.body?.userId, req.body?.channel));
     });
   }
 

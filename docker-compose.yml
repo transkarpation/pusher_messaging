@@ -10,5 +10,22 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  # Realtime server for REALTIME_DRIVER=phoenix (apps/realtime-server-phoenix). Not started
+  # by `docker compose up` / `pnpm db:up`; run it with `pnpm realtime:phoenix`.
+  realtime-phoenix:
+    profiles: ["phoenix"]
+    build: ./apps/realtime-server-phoenix
+    env_file:
+      - path: ./apps/server/.env # PHOENIX_SHARED_SECRET, shared with the API
+        required: false
+    environment:
+      PORT: "4000"
+      API_URL: http://host.docker.internal:3000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "4000:4000"
+
 volumes:
   pgdata:

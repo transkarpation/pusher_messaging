@@ -5,6 +5,7 @@ import {
   type CreateMessageInput,
   type Message,
   type MessagesResponse,
+  type PhoenixTokenResponse,
   type RealtimeConfig,
   type Room,
   type TokenAuthResponse,
@@ -77,5 +78,6 @@ export const api = {
     request<Message>(`${room(roomId)}/messages`, "POST", input),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
+  getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),
 
 };
