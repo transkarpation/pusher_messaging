@@ -1,5 +1,7 @@
 import express, { type ErrorRequestHandler } from "express";
 import cookieParser from "cookie-parser";
+import swaggerUi from "swagger-ui-express";
+import { openApiDocument } from "./lib/openapi.js";
 import { authRouter } from "./routes/auth.js";
 import { blocksRouter } from "./routes/blocks.js";
 import { invitesRouter } from "./routes/invites.js";
@@ -25,6 +27,19 @@ app.use("/api/users", usersRouter);
 app.use("/api/blocks", blocksRouter);
 app.use("/api/realtime", realtimeRouter);
 app.use("/api/seeds", seedsRouter);
+
+// API docs: the OpenAPI document, and Swagger UI to browse and try it.
+app.get("/api/openapi.json", (_req, res) => {
+  res.json(openApiDocument);
+});
+app.use(
+  "/api/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(openApiDocument, {
+    customSiteTitle: "pusher-messaging API",
+    swaggerOptions: { withCredentials: true, persistAuthorization: true },
+  }),
+);
 
 const onError: ErrorRequestHandler = (err, _req, res, _next) => {
   // Body parsers fail with a 4xx `status` (malformed JSON, body too large); pass those on.

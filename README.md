@@ -59,6 +59,7 @@ Real-time chat with rooms, invitations, messages (editable and deletable), typin
 
    - Client: http://localhost:5173
    - API: http://localhost:3000. Vite proxies `/api` to it.
+   - API docs (Swagger UI): http://localhost:5173/api/docs. The OpenAPI document is at `/api/openapi.json`. To try authenticated endpoints, call `POST /auth/login` there first; the session cookie then goes with every request.
 
    To try it out, register two users in different browsers (or a normal and a private window). Then create a room and add the second user. Or load the demo data (below).
 
