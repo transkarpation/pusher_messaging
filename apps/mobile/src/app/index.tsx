@@ -51,6 +51,7 @@ export default function RoomsScreen() {
       params: {
         id: String(room.id),
         name: room.name,
+        avatar: room.avatarUrl ?? "",
         owner: room.members.some((m) => m.user.id === me.id && m.role === "owner") ? "1" : "0",
       },
     });

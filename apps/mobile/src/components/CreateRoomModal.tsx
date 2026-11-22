@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
-import { FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createRoomSchema, type Room, type User } from "@pm/shared";
 import { api } from "../lib/api";
 import { displayName } from "../lib/format";
-import { pickRoomPicture, type PickedPicture } from "../lib/roomPicture";
 import { useStyles, type Colors } from "../lib/theme";
-import { RoomAvatar } from "./RoomAvatar";
+import { RoomPictureField, type PictureChoice } from "./RoomPictureField";
 
 const SEARCH_DEBOUNCE_MS = 250;
-const PICTURE_SIZE = 72;
 
 /**
  * The form for a new room, as on the web: a picture, a name and the people to invite (they join once they
@@ -27,7 +25,7 @@ export function CreateRoomModal({
   const styles = useStyles(makeStyles);
   const [name, setName] = useState("");
   const [invitees, setInvitees] = useState<User[]>([]);
-  const [picture, setPicture] = useState<PickedPicture | null>(null);
+  const [picture, setPicture] = useState<PictureChoice>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -71,20 +69,8 @@ export function CreateRoomModal({
   const toggle = (user: User) =>
     setInvitees((list) => (list.some((u) => u.id === user.id) ? list.filter((u) => u.id !== user.id) : [...list, user]));
 
-  const choosePicture = async () => {
-    try {
-      const picked = await pickRoomPicture();
-      if (picked) {
-        setPicture(picked);
-        setError(null);
-      }
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
   const submit = async () => {
-    const parsed = createRoomSchema.safeParse({ name, inviteIds: invitees.map((u) => u.id), avatar: picture?.base64 });
+    const parsed = createRoomSchema.safeParse({ name, inviteIds: invitees.map((u) => u.id), avatar: picture && picture !== "removed" ? picture.base64 : undefined });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Invalid input");
       return;
@@ -104,25 +90,18 @@ export function CreateRoomModal({
 
   const header = (
     <View style={styles.form}>
-      <View style={styles.pictureRow}>
-        <Pressable onPress={() => void choosePicture()} disabled={submitting} accessibilityRole="button" accessibilityLabel="Choose a picture">
-          {picture ? (
-            <Image source={{ uri: picture.uri }} style={styles.picture} />
-          ) : (
-            <RoomAvatar room={{ id: 0, name: name || "?", avatarUrl: null }} size={PICTURE_SIZE} />
-          )}
-        </Pressable>
-        <View style={styles.pictureActions}>
-          <Pressable onPress={() => void choosePicture()} disabled={submitting} hitSlop={6}>
-            <Text style={styles.link}>{picture ? "Change picture" : "Choose a picture"}</Text>
-          </Pressable>
-          {picture && (
-            <Pressable onPress={() => setPicture(null)} disabled={submitting} hitSlop={6}>
-              <Text style={styles.remove}>Remove</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
+      <RoomPictureField
+        roomId={0}
+        name={name}
+        currentUrl={null}
+        value={picture}
+        disabled={submitting}
+        onChange={(p) => {
+          setPicture(p);
+          setError(null);
+        }}
+        onError={setError}
+      />
 
       <Text style={styles.label}>Name</Text>
       <TextInput
@@ -228,11 +207,6 @@ const makeStyles = (colors: Colors) =>
     headerPrimary: { fontWeight: "600" },
     disabled: { opacity: 0.4 },
     form: { padding: 16, gap: 8 },
-    pictureRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 4 },
-    picture: { width: PICTURE_SIZE, height: PICTURE_SIZE, borderRadius: PICTURE_SIZE * 0.28 },
-    pictureActions: { gap: 8 },
-    link: { fontSize: 16, color: colors.accent },
-    remove: { fontSize: 16, color: colors.error },
     label: { fontSize: 13, fontWeight: "600", color: colors.muted, marginTop: 8, textTransform: "uppercase" },
     input: {
       borderWidth: 1,

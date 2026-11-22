@@ -15,9 +15,11 @@ import {
   type Receipt,
   type RealtimeConfig,
   type Room,
+  type RoomUpdatedEvent,
   type SeedsResponse,
   type TokenAuthResponse,
   type UpdateReceiptInput,
+  type UpdateRoomInput,
   type User,
 } from "@pm/shared";
 import { API_URL } from "./config";
@@ -86,6 +88,8 @@ export const api = {
   getRooms: () => request<Room[]>("/rooms"),
   /** The new room, with the current user as its owner; invitees join once they accept. */
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
+  /** Room owner only: renames the room and/or changes its picture; returns its new name and picture. */
+  updateRoom: (roomId: number, input: UpdateRoomInput) => request<RoomUpdatedEvent>(room(roomId), "PATCH", input),
   searchUsers: (q: string) => request<User[]>(`/users?q=${encodeURIComponent(q)}`),
   getMessages: (roomId: number, before?: number) =>
     request<MessagesResponse>(`${room(roomId)}/messages${before !== undefined ? `?before=${before}` : ""}`),

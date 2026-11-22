@@ -39,7 +39,9 @@ import {
   type RoomUpdatedEvent,
 } from "@pm/shared";
 import { CreatePollModal } from "../../components/CreatePollModal";
+import { EditRoomModal } from "../../components/EditRoomModal";
 import { PollCard } from "../../components/PollCard";
+import { RoomAvatar } from "../../components/RoomAvatar";
 import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
 import { getRealtime, listen } from "../../lib/realtime";
@@ -75,9 +77,11 @@ const NEAR_BOTTOM_THRESHOLD = 80;
 
 export default function RoomScreen() {
   const styles = useStyles(makeStyles);
-  const { id, name, owner } = useLocalSearchParams<{ id: string; name?: string; owner?: string }>();
-  // The owner may rename the room while it's open.
+  const { id, name, owner, avatar } = useLocalSearchParams<{ id: string; name?: string; owner?: string; avatar?: string }>();
+  // The owner may rename the room or change its picture while it's open.
   const [title, setTitle] = useState(name ?? "Room");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(avatar || null);
+  const [editing, setEditing] = useState(false);
   const roomId = Number(id);
   const me = useSession((s) => s.user)!;
   /** Only the room owner posts polls; passed by the room list, then kept current by `room:members`. */
@@ -171,7 +175,10 @@ export default function RoomScreen() {
             patchPoll(e.messageId, (p) => (e.poll.version < p.version ? p : { ...e.poll, myVotes: p.myVotes })),
           [ROOM_MEMBERS_EVENT]: (e: RoomMembersEvent) =>
             setIsOwner(e.members.some((m) => m.user.id === me.id && m.role === "owner")),
-          [ROOM_UPDATED_EVENT]: (e: RoomUpdatedEvent) => setTitle(e.name),
+          [ROOM_UPDATED_EVENT]: (e: RoomUpdatedEvent) => {
+            setTitle(e.name);
+            setAvatarUrl(e.avatarUrl);
+          },
         });
         // My vote changed on another device.
         stopUser = listen(conn, userChannel(me.id), {
@@ -227,7 +234,26 @@ export default function RoomScreen() {
       behavior="padding"
       keyboardVerticalOffset={headerHeight}
     >
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen
+        options={{
+          title,
+          headerTitle: () => (
+            <View style={styles.headerTitle}>
+              <RoomAvatar room={{ id: roomId, name: title, avatarUrl }} size={30} />
+              <Text style={styles.headerName} numberOfLines={1}>
+                {title}
+              </Text>
+            </View>
+          ),
+          headerRight: isOwner
+            ? () => (
+                <Pressable onPress={() => setEditing(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Edit room">
+                  <Text style={styles.headerButton}>Edit</Text>
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
       {!loaded && !error ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
@@ -309,6 +335,15 @@ export default function RoomScreen() {
           scrollToLatest();
         }}
       />
+      <EditRoomModal
+        room={{ id: roomId, name: title, avatarUrl }}
+        visible={editing}
+        onClose={() => setEditing(false)}
+        onSaved={(e) => {
+          setTitle(e.name);
+          setAvatarUrl(e.avatarUrl);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -382,6 +417,9 @@ function DeliveryStatus({ delivery: d }: { delivery: MessageDelivery }) {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  headerTitle: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
+  headerName: { fontSize: 17, fontWeight: "600", color: colors.text, flexShrink: 1 },
+  headerButton: { color: colors.accent, fontSize: 16 },
   loading: { margin: 16 },
   listWrap: { flex: 1 },
   list: { padding: 12, gap: 6 },
