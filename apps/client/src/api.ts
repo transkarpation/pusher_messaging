@@ -77,11 +77,15 @@ export const api = {
   removeMember: (roomId: number, userId: number) =>
     request<{ members: RoomMember[] }>(`${room(roomId)}/members/${userId}`, "DELETE"),
 
-  /** Latest page, or with `after` the oldest page of messages newer than that id. */
-  getMessages: (roomId: number, after?: number) =>
-    request<MessagesResponse>(
-      `${room(roomId)}/messages${after === undefined ? "" : `?after=${after}`}`,
-    ),
+  /**
+   * Latest page; with `before` the page of messages just older than that id;
+   * with `after` the oldest page of messages newer than that id.
+   */
+  getMessages: (roomId: number, cursor: { before?: number; after?: number } = {}) => {
+    const query =
+      cursor.before !== undefined ? `?before=${cursor.before}` : cursor.after !== undefined ? `?after=${cursor.after}` : "";
+    return request<MessagesResponse>(`${room(roomId)}/messages${query}`);
+  },
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
   updateMessage: (roomId: number, messageId: number, input: UpdateMessageInput) =>

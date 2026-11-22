@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   MESSAGES_PAGE_SIZE,
@@ -35,8 +35,9 @@ messagesRouter.get("/messages", async (req, res) => {
   const query = parseBody(messagesQuerySchema, req.query, res);
   if (!query) return;
   const roomId = req.room!.id;
-  const { after } = query;
+  const { before, after } = query;
   const { messages } = schema;
+  const forward = after !== undefined;
 
   const [rows, receipts] = await Promise.all([
     db
@@ -44,18 +45,23 @@ messagesRouter.get("/messages", async (req, res) => {
       .from(messages)
       .innerJoin(schema.users, eq(schema.users.id, messages.userId))
       .where(
-        after === undefined
-          ? eq(messages.roomId, roomId)
-          : and(eq(messages.roomId, roomId), gt(messages.id, after)),
+        and(
+          eq(messages.roomId, roomId),
+          before !== undefined ? lt(messages.id, before) : undefined,
+          after !== undefined ? gt(messages.id, after) : undefined,
+        ),
       )
-      // Latest page: newest first, reversed below. Catch-up: oldest after `after` first.
-      .orderBy(after === undefined ? desc(messages.id) : asc(messages.id))
-      .limit(MESSAGES_PAGE_SIZE),
+      // Backwards (latest page, `before`): newest first, reversed below. Catch-up: oldest after `after` first.
+      .orderBy(forward ? asc(messages.id) : desc(messages.id))
+      // One extra row tells whether there's more beyond this page.
+      .limit(MESSAGES_PAGE_SIZE + 1),
     db.select(receiptColumns).from(schema.receipts).where(eq(schema.receipts.roomId, roomId)),
   ]);
 
-  if (after === undefined) rows.reverse();
-  const body: MessagesResponse = { messages: rows.map(toMessage), receipts };
+  const hasMore = rows.length > MESSAGES_PAGE_SIZE;
+  const page = rows.slice(0, MESSAGES_PAGE_SIZE);
+  if (!forward) page.reverse();
+  const body: MessagesResponse = { messages: page.map(toMessage), receipts, hasMore };
   res.json(body);
 });
 

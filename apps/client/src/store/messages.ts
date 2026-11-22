@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import {
-  MESSAGES_PAGE_SIZE,
   type Message,
   type Receipt,
   type User,
@@ -25,6 +24,15 @@ export interface RoomMessages {
   loaded: boolean;
   loading: boolean;
   error: string | null;
+  /**
+   * The oldest message of the room is loaded: the whole history is here, so
+   * scrolling up doesn't ask the server for more.
+   */
+  reachedStart: boolean;
+  /** An older page is being fetched (scrolled to the top). */
+  loadingOlder: boolean;
+  /** Last failure loading an older page; cleared on the next attempt. */
+  olderError: string | null;
 }
 
 export const EMPTY_ROOM: RoomMessages = {
@@ -34,11 +42,19 @@ export const EMPTY_ROOM: RoomMessages = {
   loaded: false,
   loading: false,
   error: null,
+  reachedStart: false,
+  loadingOlder: false,
+  olderError: null,
 };
 
 interface MessagesState {
   byRoom: Record<number, RoomMessages>;
   fetch: (roomId: number) => Promise<void>;
+  /**
+   * Loads the page of messages just before the oldest one we have. No-op until the room
+   * is loaded, while a page is in flight, and once `reachedStart` is set.
+   */
+  loadOlder: (roomId: number) => Promise<void>;
   /**
    * Loads messages missed while realtime was disconnected (everything after the
    * newest one we have), then refetches the latest page to pick up edits and
@@ -145,10 +161,29 @@ export const useMessages = create<MessagesState>((set, get) => {
         byRoom: { ...s.byRoom, [roomId]: { ...(current ?? EMPTY_ROOM), loading: true, error: null } },
       }));
       try {
-        const { messages, receipts } = await api.getMessages(roomId);
-        patch(roomId, (r) => ({ ...mergePage(r, messages, receipts), loaded: true, loading: false }));
+        const { messages, receipts, hasMore } = await api.getMessages(roomId);
+        patch(roomId, (r) => ({
+          ...mergePage(r, messages, receipts),
+          loaded: true,
+          loading: false,
+          reachedStart: !hasMore,
+        }));
       } catch (e) {
         patch(roomId, () => ({ loading: false, error: (e as Error).message }));
+      }
+    },
+
+    loadOlder: async (roomId) => {
+      const current = get().byRoom[roomId];
+      if (!current?.loaded || current.reachedStart || current.loadingOlder) return;
+      const before = current.messages[0]?.id;
+      if (before === undefined) return; // empty room: `fetch` already set reachedStart
+      patch(roomId, () => ({ loadingOlder: true, olderError: null }));
+      try {
+        const { messages, receipts, hasMore } = await api.getMessages(roomId, { before });
+        patch(roomId, (r) => ({ ...mergePage(r, messages, receipts), loadingOlder: false, reachedStart: !hasMore }));
+      } catch (e) {
+        patch(roomId, () => ({ loadingOlder: false, olderError: (e as Error).message }));
       }
     },
 
@@ -161,10 +196,10 @@ export const useMessages = create<MessagesState>((set, get) => {
       try {
         let after = current.messages.at(-1)?.id ?? 0;
         for (let page = 0; page < MAX_CATCH_UP_PAGES; page++) {
-          const { messages, receipts } = await api.getMessages(roomId, after);
+          const { messages, receipts, hasMore } = await api.getMessages(roomId, { after });
           if (!get().byRoom[roomId]) return; // room left meanwhile
           patch(roomId, (r) => mergePage(r, messages, receipts));
-          if (messages.length < MESSAGES_PAGE_SIZE) {
+          if (!hasMore) {
             await resyncLatest(roomId);
             return;
           }

@@ -9,6 +9,7 @@
  */
 import { deflateSync } from "node:zlib";
 import { inArray } from "drizzle-orm";
+import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
 import { hashPassword } from "../src/lib/password.js";
 
@@ -132,13 +133,13 @@ const ROOMS: RoomSpec[] = [
   },
 ];
 
-/** A big room with generated small talk, to see paging (more than one page of messages). */
+/** A big room with generated small talk, many pages long, to scroll back through history. */
 const GENERAL = {
   name: "Загальний",
   owner: "olena" as Username,
   members: USERS.map((u) => u.username) as Username[],
-  days: 7,
-  messages: 160,
+  days: 14,
+  messages: 400,
 };
 
 const PHRASES = [
@@ -441,7 +442,7 @@ async function main() {
       "  - maksym: blocked taras, so taras's messages are hidden for him in «Загальний»",
       "  - iryna: a pending invite to «Вихідні 🏔»",
       "  - kateryna: no name set, joined «Вихідні 🏔» by invite",
-      "  - «Загальний»: 160 messages over a week (more than one page)",
+      `  - «Загальний»: ${GENERAL.messages} messages over ${GENERAL.days} days (${Math.ceil(GENERAL.messages / MESSAGES_PAGE_SIZE)} pages of ${MESSAGES_PAGE_SIZE}); «Frontend команда» is a bit over one page`,
     ].join("\n"),
   );
 }

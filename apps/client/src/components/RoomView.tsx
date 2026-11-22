@@ -21,15 +21,18 @@ import { Avatar } from "./Avatar";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
+import { Spinner } from "./Spinner";
 import { TypingIndicator } from "./TypingIndicator";
 
 const isTouch = () => window.matchMedia("(pointer: coarse)").matches;
 
+/** How close to the top of the list (px) scrolling has to get to load older messages. */
+const LOAD_OLDER_THRESHOLD = 120;
+
 /** Rendered with `key={room.id}`, so local state resets when switching rooms. */
 export function RoomView({ room, me }: { room: Room; me: User }) {
-  const { messages: allMessages, pending, receipts, loaded, error } = useMessages(
-    (s) => s.byRoom[room.id] ?? EMPTY_ROOM,
-  );
+  const { messages: allMessages, pending, receipts, loaded, error, reachedStart, loadingOlder, olderError } =
+    useMessages((s) => s.byRoom[room.id] ?? EMPTY_ROOM);
   const blocked = useBlocks((s) => s.ids);
   // Regular messages of blocked people are hidden (system lines about them stay). They are
   // still kept in the store, so unblocking shows them again without a refetch.
@@ -38,6 +41,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     [allMessages, blocked],
   );
   const fetch = useMessages((s) => s.fetch);
+  const loadOlder = useMessages((s) => s.loadOlder);
   const send = useMessages((s) => s.send);
   const retry = useMessages((s) => s.retry);
   const edit = useMessages((s) => s.edit);
@@ -53,6 +57,10 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
   /** On touch devices, tapping a message shows its actions (there's no hover). */
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  /** Distance from the list's bottom edge to the viewport's, to keep the view still when older messages are added. */
+  const fromBottom = useRef(0);
+  /** First/last rendered message and pending count at the previous render, to tell prepends from appends. */
+  const edges = useRef<{ first?: number; last?: number; pending: number }>({ pending: 0 });
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = room.members.some((m) => m.user.id === me.id && m.role === "owner");
@@ -70,11 +78,37 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     void fetch(room.id);
   }, [fetch, room.id]);
 
-  // Keep the newest message in view.
-  useEffect(() => {
+  /** Near the top (or the list doesn't fill the screen yet): fetch the previous page. The store dedupes calls. */
+  const loadOlderIfAtTop = () => {
     const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, pending.length, loaded]);
+    // After a failure, only the Retry button tries again (no request per scroll event).
+    if (el && !olderError && el.scrollTop < LOAD_OLDER_THRESHOLD) void loadOlder(room.id);
+  };
+
+  // Older messages were added at the top: keep the same messages on screen.
+  // Anything else that changes the ends (new message, sent message, first load): show the newest.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const first = messages[0]?.id;
+    const last = messages.at(-1)?.id;
+    const prev = edges.current;
+    const prepended =
+      prev.first !== undefined && first !== undefined && first < prev.first && last === prev.last && pending.length === prev.pending;
+    if (prepended) el.scrollTop = el.scrollHeight - fromBottom.current;
+    else if (first !== prev.first || last !== prev.last || pending.length !== prev.pending) el.scrollTop = el.scrollHeight;
+    edges.current = { first, last, pending: pending.length };
+    fromBottom.current = el.scrollHeight - el.scrollTop;
+    // Keeps loading while the list is too short to scroll (or all of a page was hidden as blocked).
+    loadOlderIfAtTop();
+  }, [messages, pending.length, loaded, reachedStart]);
+
+  const onListScroll = () => {
+    const el = listRef.current;
+    if (!el) return;
+    fromBottom.current = el.scrollHeight - el.scrollTop;
+    loadOlderIfAtTop();
+  };
 
   // Grow the composer with its content; CSS max-height caps it at 5 lines, after which it scrolls.
   useLayoutEffect(() => {
@@ -272,33 +306,55 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
 
         {error && <p className="error">{error}</p>}
         {!loaded && messages.length === 0 ? (
-          <p className="muted messages-placeholder">Loading…</p>
-        ) : messages.length === 0 && pending.length === 0 ? (
+          <div className="messages-placeholder">
+            <Spinner label="Loading messages" />
+          </div>
+        ) : reachedStart && messages.length === 0 && pending.length === 0 ? (
           <p className="muted messages-placeholder">No messages yet. Say hi!</p>
         ) : (
-          <ul className="messages" ref={listRef}>
-            {messages.map((m, i) => (
-              <Fragment key={m.id}>
-                {daySeparator(m.createdAt, messages[i - 1]?.createdAt)}
-                {renderMessage(m, messages[i + 1])}
-              </Fragment>
-            ))}
-            {pending.map((p, i) => (
-              <Fragment key={p.tempId}>
-                {daySeparator(p.createdAt, (i === 0 ? messages.at(-1) : pending[i - 1])?.createdAt)}
-                <li className="own pending">
-                  {p.text}
-                  <span className="message-meta">
-                    {time(p.createdAt)}
-                    <MessageStatus
-                      info={{ status: p.status, deliveredCount: 0, readCount: 0 }}
-                      onRetry={() => void retry(room.id, p.tempId)}
-                    />
-                  </span>
+          <div className="messages-wrap">
+            {loadingOlder && (
+              <div className="history-loading">
+                <Spinner label="Loading earlier messages" />
+              </div>
+            )}
+            <ul className="messages" ref={listRef} onScroll={onListScroll}>
+              {reachedStart && (
+                <li className="history-start" role="note">
+                  This is the beginning of «{room.name}»
                 </li>
-              </Fragment>
-            ))}
-          </ul>
+              )}
+              {olderError && (
+                <li className="history-start error" role="alert">
+                  Couldn't load earlier messages.{" "}
+                  <button type="button" className="link" onClick={() => void loadOlder(room.id)}>
+                    Retry
+                  </button>
+                </li>
+              )}
+              {messages.map((m, i) => (
+                <Fragment key={m.id}>
+                  {daySeparator(m.createdAt, messages[i - 1]?.createdAt)}
+                  {renderMessage(m, messages[i + 1])}
+                </Fragment>
+              ))}
+              {pending.map((p, i) => (
+                <Fragment key={p.tempId}>
+                  {daySeparator(p.createdAt, (i === 0 ? messages.at(-1) : pending[i - 1])?.createdAt)}
+                  <li className="own pending">
+                    {p.text}
+                    <span className="message-meta">
+                      {time(p.createdAt)}
+                      <MessageStatus
+                        info={{ status: p.status, deliveredCount: 0, readCount: 0 }}
+                        onRetry={() => void retry(room.id, p.tempId)}
+                      />
+                    </span>
+                  </li>
+                </Fragment>
+              ))}
+            </ul>
+          </div>
         )}
 
         <TypingIndicator roomId={room.id} members={room.members} />

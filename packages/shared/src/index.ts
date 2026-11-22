@@ -131,21 +131,33 @@ export interface Room {
 }
 
 /** Max messages returned by one GET /rooms/:id/messages. */
-export const MESSAGES_PAGE_SIZE = 100;
+export const MESSAGES_PAGE_SIZE = 20;
 
 /**
- * Query of GET /rooms/:id/messages. Without `after`: the latest page.
- * With `after`: the oldest page of messages with id > after (for catching up).
+ * Query of GET /rooms/:id/messages:
+ * - neither: the latest page;
+ * - `before`: the newest page of messages with id < before (scrolling back through history);
+ * - `after`: the oldest page of messages with id > after (catching up after a disconnect).
  */
-export const messagesQuerySchema = z.object({
-  after: z.coerce.number().int().nonnegative().optional(),
-});
+export const messagesQuerySchema = z
+  .object({
+    before: z.coerce.number().int().positive().optional(),
+    after: z.coerce.number().int().nonnegative().optional(),
+  })
+  .refine((q) => q.before === undefined || q.after === undefined, {
+    message: "Pass either before or after, not both",
+  });
 export type MessagesQuery = z.infer<typeof messagesQuerySchema>;
 
 /** Messages ordered by id ascending, plus all receipts in the room. */
 export interface MessagesResponse {
   messages: Message[];
   receipts: Receipt[];
+  /**
+   * Whether there are more messages past this page in the direction of the query:
+   * older ones for the latest page and `before`, newer ones for `after`.
+   */
+  hasMore: boolean;
 }
 
 export interface ApiError {
