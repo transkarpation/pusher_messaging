@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms, invitations, messages (editable and deletable), typing indicators, delivered/read receipts and online presence. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
+Real-time chat with rooms, invitations, messages (editable and deletable), typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through [Pusher Channels](https://pusher.com/channels).
 
 ## Stack
 

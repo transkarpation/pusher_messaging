@@ -2,6 +2,7 @@ import {
   Fragment,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -14,7 +15,9 @@ import { dayKey, dayLabel } from "../lib/dates";
 import { deliveryOf } from "../lib/delivery";
 import { deletedLabel, displayName, systemText } from "../lib/users";
 import { EMPTY_ROOM, useMessages } from "../store/messages";
+import { useBlocks } from "../store/blocks";
 import { useRooms } from "../store/rooms";
+import { Avatar } from "./Avatar";
 import { DeleteMessageModal } from "./DeleteMessageModal";
 import { MembersPanel } from "./MembersPanel";
 import { MessageStatus } from "./MessageStatus";
@@ -24,7 +27,16 @@ const isTouch = () => window.matchMedia("(pointer: coarse)").matches;
 
 /** Rendered with `key={room.id}`, so local state resets when switching rooms. */
 export function RoomView({ room, me }: { room: Room; me: User }) {
-  const { messages, pending, receipts, loaded, error } = useMessages((s) => s.byRoom[room.id] ?? EMPTY_ROOM);
+  const { messages: allMessages, pending, receipts, loaded, error } = useMessages(
+    (s) => s.byRoom[room.id] ?? EMPTY_ROOM,
+  );
+  const blocked = useBlocks((s) => s.ids);
+  // Regular messages of blocked people are hidden (system lines about them stay). They are
+  // still kept in the store, so unblocking shows them again without a refetch.
+  const messages = useMemo(
+    () => (blocked.size === 0 ? allMessages : allMessages.filter((m) => m.kind !== "text" || !blocked.has(m.author.id))),
+    [allMessages, blocked],
+  );
   const fetch = useMessages((s) => s.fetch);
   const send = useMessages((s) => s.send);
   const retry = useMessages((s) => s.retry);
@@ -161,7 +173,17 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       </li>
     );
 
-  const renderMessage = (m: Message) => {
+  /**
+   * Others' messages are indented to leave room for the author's avatar, which is drawn
+   * only on the last message of a run by the same author (like most messengers do).
+   */
+  const avatarSlot = (m: Message, next: Message | undefined) => {
+    const endsRun =
+      !next || next.kind !== "text" || next.author.id !== m.author.id || dayKey(next.createdAt) !== dayKey(m.createdAt);
+    return endsRun ? <Avatar user={m.author} size={28} className="message-avatar" /> : null;
+  };
+
+  const renderMessage = (m: Message, next: Message | undefined) => {
     const own = m.author.id === me.id;
     const editable = canEdit(m);
     const deletable = canDelete(m);
@@ -176,7 +198,8 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
     }
     if (m.deletedAt) {
       return (
-        <li className={own ? "own deleted" : "deleted"}>
+        <li className={own ? "own deleted" : "deleted with-avatar"}>
+          {!own && avatarSlot(m, next)}
           {!own && <span className="message-author">{displayName(m.author)}</span>}
           <span className="deleted-text">{deletedLabel(own)}</span>
           <span className="message-meta">{time(m.createdAt)}</span>
@@ -184,7 +207,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
       );
     }
     const classes = [
-      own && "own",
+      own ? "own" : "with-avatar",
       m.id === selectedId && "selected",
       m.id === editing?.message.id && "editing",
     ].filter(Boolean);
@@ -195,6 +218,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
           if ((editable || deletable) && isTouch()) setSelectedId((id) => (id === m.id ? null : m.id));
         }}
       >
+        {!own && avatarSlot(m, next)}
         {!own && <span className="message-author">{displayName(m.author)}</span>}
         {m.text}
         <span className="message-meta">
@@ -256,7 +280,7 @@ export function RoomView({ room, me }: { room: Room; me: User }) {
             {messages.map((m, i) => (
               <Fragment key={m.id}>
                 {daySeparator(m.createdAt, messages[i - 1]?.createdAt)}
-                {renderMessage(m)}
+                {renderMessage(m, messages[i + 1])}
               </Fragment>
             ))}
             {pending.map((p, i) => (

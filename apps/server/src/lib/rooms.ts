@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import {
   ROOM_ADDED_EVENT,
   userChannel,
@@ -9,10 +9,9 @@ import {
 import { db, schema } from "../db/index.js";
 import { loadRoomInvites } from "./invites.js";
 import { broadcast } from "./pusher.js";
+import { userColumns } from "./users.js";
 
-const { users, rooms, roomMembers, messages, receipts } = schema;
-
-export const userColumns = { id: users.id, username: users.username, name: users.name };
+const { users, rooms, roomMembers, messages, receipts, userBlocks } = schema;
 
 export const messageColumns = {
   id: messages.id,
@@ -63,6 +62,10 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
     .where(onlyIds ? inArray(rooms.id, onlyIds) : undefined);
   if (base.length === 0) return [];
   const ids = base.map((r) => r.id);
+  const blockedIds = db
+    .select({ id: userBlocks.blockedId })
+    .from(userBlocks)
+    .where(eq(userBlocks.blockerId, userId));
 
   const [memberRows, lastRows, unreadRows, myReceipts, inviteRows] = await Promise.all([
     db
@@ -75,7 +78,8 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
       .selectDistinctOn([messages.roomId], messageColumns)
       .from(messages)
       .innerJoin(users, eq(users.id, messages.userId))
-      .where(inArray(messages.roomId, ids))
+      // System lines stay visible even when they're about a blocked user.
+      .where(and(inArray(messages.roomId, ids), or(ne(messages.kind, "text"), notInArray(messages.userId, blockedIds))))
       .orderBy(messages.roomId, desc(messages.id)),
     db
       .select({ roomId: messages.roomId, count: count() })
@@ -85,6 +89,7 @@ export async function loadRooms(userId: number, onlyIds?: number[]): Promise<Roo
         and(
           inArray(messages.roomId, ids),
           ne(messages.userId, userId),
+          notInArray(messages.userId, blockedIds),
           eq(messages.kind, "text"),
           isNull(messages.deletedAt),
           gt(messages.id, sql`coalesce(${receipts.readUpTo}, 0)`),

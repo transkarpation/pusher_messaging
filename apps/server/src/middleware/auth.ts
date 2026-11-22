@@ -3,6 +3,7 @@ import { and, eq, gt } from "drizzle-orm";
 import type { User } from "@pm/shared";
 import { db, schema } from "../db/index.js";
 import { SESSION_COOKIE, hashToken } from "../lib/session.js";
+import { userColumns } from "../lib/users.js";
 
 declare global {
   namespace Express {
@@ -18,7 +19,7 @@ export const loadUser: RequestHandler = async (req, _res, next) => {
   if (!token) return next();
 
   const [row] = await db
-    .select({ id: schema.users.id, username: schema.users.username, name: schema.users.name })
+    .select(userColumns)
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
     .where(and(eq(schema.sessions.id, hashToken(token)), gt(schema.sessions.expiresAt, new Date())))

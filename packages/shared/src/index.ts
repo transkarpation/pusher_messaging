@@ -45,7 +45,16 @@ export interface User {
   id: number;
   username: string;
   name: string | null;
+  /** Uploaded avatar (versioned, so it changes with every upload), or null for the default one. */
+  avatarUrl: string | null;
 }
+
+/** Image types accepted by PUT /auth/me/avatar (sent as the raw request body). */
+export const AVATAR_CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+export type AvatarContentType = (typeof AVATAR_CONTENT_TYPES)[number];
+/** Max upload size; the client scales images down to `AVATAR_SIZE` px before uploading. */
+export const AVATAR_MAX_BYTES = 1024 * 1024;
+export const AVATAR_SIZE = 256;
 
 /**
  * "text": a regular message written by `author`.
@@ -110,8 +119,12 @@ export interface Room {
   members: RoomMember[];
   /** People invited who haven't accepted or declined yet. */
   invites: RoomInvite[];
+  /** Latest message the current user can see (regular messages of people they blocked are skipped). */
   lastMessage: Message | null;
-  /** Messages from others newer than the current user's read watermark (deleted and system ones excluded). */
+  /**
+   * Messages from others newer than the current user's read watermark
+   * (deleted and system ones, and those of blocked users, excluded).
+   */
   unreadCount: number;
   /** The current user's own watermarks in this room. */
   myReceipt: { deliveredUpTo: number; readUpTo: number };
@@ -147,6 +160,9 @@ export const updateReceiptSchema = z
   });
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 
+export const blockSchema = z.object({ userId: z.number().int().positive() });
+export type BlockInput = z.infer<typeof blockSchema>;
+
 export const typingSchema = z.object({ typing: z.boolean() });
 export type TypingInput = z.infer<typeof typingSchema>;
 
@@ -175,6 +191,8 @@ export const ROOM_ADDED_EVENT = "room:added";
 export const ROOM_REMOVED_EVENT = "room:removed";
 export const INVITATION_ADDED_EVENT = "invitation:added";
 export const INVITATION_REMOVED_EVENT = "invitation:removed";
+/** Carries `BlocksEvent`: the user's whole block list after a change (for their other tabs). */
+export const BLOCKS_UPDATED_EVENT = "blocks:updated";
 // online channel events
 export const USER_UPDATED_EVENT = "user:updated";
 
@@ -198,6 +216,10 @@ export interface RoomRemovedEvent {
   roomId: number;
 }
 
+export interface BlocksEvent {
+  blocked: User[];
+}
+
 export interface RoomInvitesEvent {
   roomId: number;
   invites: RoomInvite[];
@@ -212,6 +234,7 @@ export interface InvitationRemovedEvent {
 export interface PresenceUserInfo {
   username: string;
   name: string | null;
+  avatarUrl: string | null;
 }
 
 /** Header carrying the Pusher socket id, so the server can skip echoing events back. */

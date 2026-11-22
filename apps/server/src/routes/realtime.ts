@@ -34,7 +34,7 @@ realtimeRouter.post("/pusher/auth", requireAuth, async (req, res) => {
   const user = req.user!;
 
   if (channel === ONLINE_CHANNEL) {
-    const userInfo: PresenceUserInfo = { username: user.username, name: user.name };
+    const userInfo: PresenceUserInfo = { username: user.username, name: user.name, avatarUrl: user.avatarUrl };
     res.json(pusher.authorizeChannel(socketId, channel, { user_id: String(user.id), user_info: userInfo }));
     return;
   }

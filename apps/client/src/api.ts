@@ -1,5 +1,7 @@
 import {
   SOCKET_ID_HEADER,
+  type BlockInput,
+  type BlocksEvent,
   type CreateMessageInput,
   type CreateRoomInput,
   type Credentials,
@@ -29,8 +31,10 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** A Blob body is sent as is, with its own type; anything else as JSON. */
 async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isBlob = body instanceof Blob;
+  const headers: Record<string, string> = { "Content-Type": isBlob ? body.type : "application/json" };
   const socketId = getSocketId();
   if (socketId) headers[SOCKET_ID_HEADER] = socketId;
 
@@ -38,7 +42,7 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
     method,
     headers,
     credentials: "same-origin",
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isBlob ? body : JSON.stringify(body),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
@@ -55,8 +59,14 @@ export const api = {
   register: (c: Credentials) => request<{ user: User }>("/auth/register", "POST", c),
   logout: () => request<void>("/auth/logout", "POST"),
   updateProfile: (p: UpdateProfileInput) => request<{ user: User }>("/auth/me", "PATCH", p),
+  uploadAvatar: (image: Blob) => request<{ user: User }>("/auth/me/avatar", "PUT", image),
+  removeAvatar: () => request<{ user: User }>("/auth/me/avatar", "DELETE"),
 
   searchUsers: (q: string) => request<User[]>(`/users?q=${encodeURIComponent(q)}`),
+
+  getBlocks: () => request<BlocksEvent>("/blocks"),
+  block: (input: BlockInput) => request<BlocksEvent>("/blocks", "POST", input),
+  unblock: (userId: number) => request<BlocksEvent>(`/blocks/${userId}`, "DELETE"),
 
   getRooms: () => request<Room[]>("/rooms"),
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),

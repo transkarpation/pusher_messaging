@@ -12,6 +12,10 @@ interface AuthState {
   login: (c: Credentials) => Promise<void>;
   register: (c: Credentials) => Promise<void>;
   setName: (name: string) => Promise<void>;
+  uploadAvatar: (image: Blob) => Promise<void>;
+  removeAvatar: () => Promise<void>;
+  /** Applies a profile change made elsewhere (e.g. another tab). */
+  applyUpdate: (user: User) => void;
   logout: () => Promise<void>;
 }
 
@@ -42,6 +46,17 @@ export const useAuth = create<AuthState>((set, get) => ({
   setName: async (name) => {
     const { user } = await api.updateProfile({ name });
     set({ user });
+  },
+  uploadAvatar: async (image) => {
+    const { user } = await api.uploadAvatar(image);
+    set({ user });
+  },
+  removeAvatar: async () => {
+    const { user } = await api.removeAvatar();
+    set({ user });
+  },
+  applyUpdate: (user) => {
+    if (get().user?.id === user.id) set({ user });
   },
   logout: async () => {
     await api.logout();

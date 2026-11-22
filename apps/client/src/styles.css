@@ -123,6 +123,30 @@ button.ghost.danger:hover { color: var(--error); }
 .small { font-size: 12px; }
 .error { color: var(--error); margin: 0; font-size: 14px; }
 
+/* Uploaded photo, or a colored circle with the initial (size and font-size are set inline). */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.profile-avatar { display: flex; align-items: center; gap: 16px; }
+
+.profile-page { display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 16px; overflow-y: auto; }
+.profile-content { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 520px; }
+.profile-section { padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.blocked-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.blocked-list li { display: flex; align-items: center; gap: 10px; }
+.blocked-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.profile-avatar-actions { gap: 8px; }
+
 /* ---- modal --------------------------------------------------------------- */
 
 .modal {
@@ -203,6 +227,21 @@ button.ghost.danger:hover { color: var(--error); }
   padding: 16px;
   border-bottom: 1px solid var(--border);
 }
+.profile-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: -6px;
+  padding: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.profile-button:hover { background: var(--hover); }
+.profile-button.active { background: var(--own); }
+.profile-button-text { display: flex; flex-direction: column; min-width: 0; }
+.profile-button-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-actions { padding: 12px 16px 4px; }
 .sidebar-actions button { width: 100%; }
 
@@ -301,6 +340,8 @@ button.ghost.danger:hover { color: var(--error); }
   border-radius: 12px 12px 4px 12px;
   background: var(--own);
 }
+.messages li.with-avatar { margin-left: 36px; }
+.message-avatar { position: absolute; left: -36px; bottom: 0; }
 .message-author { display: block; font-size: 13px; font-weight: 600; }
 .message-meta { float: right; margin: 4px 0 0 10px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .messages li.pending { opacity: 0.75; }
@@ -413,7 +454,13 @@ button.ghost.danger:hover { color: var(--error); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--offline); flex: none; }
 .dot.on { background: var(--online); }
 .dot.pending { background: transparent; border: 1.5px dashed var(--muted); }
+/* Presence dot as a badge on the avatar's corner. */
+.member-avatar { position: relative; display: inline-flex; flex: none; }
+.member-avatar .dot { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border: 2px solid var(--card); }
+.member-avatar .dot.pending { background: var(--card); border: 1.5px dashed var(--muted); }
+.members li.invited .avatar { opacity: 0.6; }
 .members li.invited .member-name { color: var(--muted); }
+.tag.blocked { color: var(--error); border-color: currentColor; }
 .members .link { align-self: flex-start; font-size: 14px; }
 
 /* Shown only on narrow screens. */

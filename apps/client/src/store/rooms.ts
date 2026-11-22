@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Message, Receipt, Room, RoomInvite, RoomMember, User } from "@pm/shared";
 import { api } from "../api";
 import { latestVersion } from "../lib/messageVersion";
+import { isBlocked } from "./blocks";
 
 const ACTIVE_KEY = "pm.activeRoomId";
 
@@ -33,8 +34,16 @@ export function sortRooms(rooms: Record<number, Room>): Room[] {
  * A refetched room, keeping what realtime events delivered while the request was
  * in flight: a newer last message (with its unread count) and further-moved watermarks.
  */
-function keepNewer(fetched: Room, local: Room | undefined): Room {
+function keepNewer(fetched: Room, local: Room | undefined, trustServer: boolean): Room {
   if (!local) return fetched;
+  if (trustServer) {
+    // Only the watermarks; last message and unread count are the server's.
+    const myReceipt = {
+      deliveredUpTo: Math.max(fetched.myReceipt.deliveredUpTo, local.myReceipt.deliveredUpTo),
+      readUpTo: Math.max(fetched.myReceipt.readUpTo, local.myReceipt.readUpTo),
+    };
+    return { ...fetched, myReceipt };
+  }
   const localIsNewer =
     !!local.lastMessage && local.lastMessage.id > (fetched.lastMessage?.id ?? 0);
   // Same last message: keep whichever copy saw the later edit/deletion.
@@ -58,7 +67,11 @@ interface RoomsState {
   loaded: boolean;
   error: string | null;
   activeRoomId: number | null;
-  fetch: () => Promise<void>;
+  /**
+   * Loads the room list. With `trustServer`, last messages and unread counts are taken
+   * as fetched even if they look older than ours (after blocking someone they are).
+   */
+  fetch: (opts?: { trustServer?: boolean }) => Promise<void>;
   upsert: (room: Room) => void;
   remove: (roomId: number) => void;
   setActive: (roomId: number | null) => void;
@@ -82,11 +95,11 @@ export const useRooms = create<RoomsState>((set, get) => ({
   error: null,
   activeRoomId: readActive(),
 
-  fetch: async () => {
+  fetch: async ({ trustServer = false } = {}) => {
     try {
       const list = await api.getRooms();
       const { rooms: prev, activeRoomId } = get();
-      const rooms = Object.fromEntries(list.map((r) => [r.id, keepNewer(r, prev[r.id])]));
+      const rooms = Object.fromEntries(list.map((r) => [r.id, keepNewer(r, prev[r.id], trustServer)]));
       const active =
         activeRoomId && rooms[activeRoomId] ? activeRoomId : (sortRooms(rooms)[0]?.id ?? null);
       writeActive(active);
@@ -130,7 +143,8 @@ export const useRooms = create<RoomsState>((set, get) => ({
   onMessage: (message, { fromMe, viewing }) =>
     set((s) => {
       const room = s.rooms[message.roomId];
-      if (!room) return s;
+      // Messages of blocked users don't show up in the preview or the unread count.
+      if (!room || (message.kind === "text" && isBlocked(message.author.id))) return s;
       const isNewer = !room.lastMessage || message.id > room.lastMessage.id;
       return {
         rooms: {
@@ -156,7 +170,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
   onMessageDeleted: (message, { fromMe }) =>
     set((s) => {
       const room = s.rooms[message.roomId];
-      if (!room) return s;
+      if (!room || isBlocked(message.author.id)) return s; // never counted, never the preview
       const wasUnread = !fromMe && message.id > room.myReceipt.readUpTo;
       const lastMessage =
         room.lastMessage?.id === message.id ? latestVersion(room.lastMessage, message) : room.lastMessage;

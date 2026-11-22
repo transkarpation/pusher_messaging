@@ -2,12 +2,15 @@ import { useMemo, useState } from "react";
 import type { Room, User } from "@pm/shared";
 import { api } from "../api";
 import { displayName } from "../lib/users";
+import { useBlocks } from "../store/blocks";
 import { useOnline } from "../store/online";
 import { useRooms } from "../store/rooms";
+import { Avatar } from "./Avatar";
 import { InviteModal } from "./InviteModal";
 
 export function MembersPanel({ room, me }: { room: Room; me: User }) {
   const online = useOnline((s) => s.users);
+  const blocked = useBlocks((s) => s.ids);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +45,17 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
     }
   };
 
+  const toggleBlock = async (user: User) => {
+    const { block, unblock } = useBlocks.getState();
+    try {
+      if (blocked.has(user.id)) await unblock(user.id);
+      else if (window.confirm(`Block ${displayName(user)}? You won't see their messages in any room.`)) await block(user.id);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const cancelInvite = async (user: User) => {
     try {
       const { invites } = await api.cancelInvite(room.id, user.id);
@@ -70,12 +84,27 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
           const canRemove = !isMe && myRole === "owner";
           return (
             <li key={user.id}>
-              <span className={`dot ${isOnline(user.id) ? "on" : ""}`} title={isOnline(user.id) ? "Online" : "Offline"} />
+              <span className="member-avatar">
+                <Avatar user={user} size={28} />
+                <span className={`dot ${isOnline(user.id) ? "on" : ""}`} title={isOnline(user.id) ? "Online" : "Offline"} />
+              </span>
               <span className="member-name">
                 {displayName(user)}
                 {isMe && <span className="muted"> (you)</span>}
                 {role === "owner" && <span className="tag">owner</span>}
+                {blocked.has(user.id) && <span className="tag blocked">blocked</span>}
               </span>
+              {!isMe && (
+                <button
+                  type="button"
+                  className="ghost icon member-block"
+                  aria-label={`${blocked.has(user.id) ? "Unblock" : "Block"} ${displayName(user)}`}
+                  title={blocked.has(user.id) ? "Unblock" : "Block (hide their messages)"}
+                  onClick={() => void toggleBlock(user)}
+                >
+                  {blocked.has(user.id) ? "↺" : "⊘"}
+                </button>
+              )}
               {canRemove && (
                 <button
                   type="button"
@@ -99,7 +128,10 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
               const canCancel = myRole === "owner" || invitedBy?.id === me.id;
               return (
                 <li key={user.id} className="invited">
-                  <span className="dot pending" title="Invite pending" />
+                  <span className="member-avatar">
+                    <Avatar user={user} size={28} />
+                    <span className="dot pending" title="Invite pending" />
+                  </span>
                   <span className="member-name">
                     {displayName(user)}
                     {invitedBy && (

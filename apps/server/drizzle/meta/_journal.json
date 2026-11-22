@@ -57,6 +57,20 @@
       "when": 1795297917491,
       "tag": "0007_familiar_swarm",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795336123005,
+      "tag": "0008_nebulous_the_fallen",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795336554559,
+      "tag": "0009_mature_warhawk",
+      "breakpoints": true
     }
   ]
 }

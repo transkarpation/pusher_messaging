@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type Pusher from "pusher-js";
 import type { Channel, Members } from "pusher-js";
 import {
+  BLOCKS_UPDATED_EVENT,
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
@@ -17,6 +18,7 @@ import {
   USER_UPDATED_EVENT,
   roomChannel,
   userChannel,
+  type BlocksEvent,
   type Invitation,
   type InvitationRemovedEvent,
   type Message,
@@ -30,6 +32,8 @@ import {
 } from "@pm/shared";
 import { isWindowActive } from "../lib/activity";
 import { getPusher } from "../realtime";
+import { useAuth } from "../store/auth";
+import { useBlocks } from "../store/blocks";
 import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
 import { useOnline, type PresenceMember } from "../store/online";
@@ -59,7 +63,7 @@ function onResubscribed(channel: Channel, resync: () => void) {
 /**
  * Wires all Pusher channels into the stores:
  * - presence-online: who is online, profile updates
- * - private-user-{me}: being added to / removed from rooms
+ * - private-user-{me}: being added to / removed from rooms, invitations, block list changes
  * - private-room-{id} for every room in the rooms store (kept in sync as it changes)
  *
  * After a reconnect, the room list and the messages of loaded rooms are refetched.
@@ -132,6 +136,7 @@ export function useRealtime(me: User) {
             rooms.updateUser(u);
             messages.updateAuthor(u);
             invitations.updateUser(u);
+            useAuth.getState().applyUpdate(u);
           },
         } satisfies Handlers);
 
@@ -141,11 +146,13 @@ export function useRealtime(me: User) {
           [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
           [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
           [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),
+          [BLOCKS_UPDATED_EVENT]: (e: BlocksEvent) => useBlocks.getState().set(e.blocked),
         } satisfies Handlers);
         // Rooms added/removed, last messages, unread counts, members and invitations changed while offline.
         onResubscribed(mine, () => {
           void rooms.fetch();
           void invitations.fetch();
+          void useBlocks.getState().fetch();
         });
 
         syncRoomChannels();

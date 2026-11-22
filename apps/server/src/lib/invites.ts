@@ -14,11 +14,11 @@ import {
 } from "@pm/shared";
 import { db, schema } from "../db/index.js";
 import { broadcast } from "./pusher.js";
+import { userColumns, userColumnsOf } from "./users.js";
 
 const { users, rooms, roomMembers, roomInvites } = schema;
-const userColumns = { id: users.id, username: users.username, name: users.name };
 const inviter = alias(users, "inviter");
-const inviterColumns = { id: inviter.id, username: inviter.username, name: inviter.name };
+const inviterColumns = userColumnsOf(inviter);
 
 /** Pending invites of the given rooms, oldest first, with the room id on each row. */
 export async function loadRoomInvites(roomIds: number[]): Promise<(RoomInvite & { roomId: number })[]> {

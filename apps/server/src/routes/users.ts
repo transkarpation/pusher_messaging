@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { and, asc, ilike, ne, or } from "drizzle-orm";
+import { and, asc, eq, ilike, ne, or } from "drizzle-orm";
 import type { User } from "@pm/shared";
 import { db, schema } from "../db/index.js";
-import { userColumns } from "../lib/rooms.js";
+import { userColumns } from "../lib/users.js";
 import { requireAuth } from "../middleware/auth.js";
 
 export const usersRouter = Router();
@@ -26,4 +26,35 @@ usersRouter.get("/", async (req, res) => {
     .limit(20);
 
   res.json(users);
+});
+
+/**
+ * GET /api/users/:id/avatar — the uploaded image. Clients use the versioned `User.avatarUrl`,
+ * so the response can be cached for good.
+ */
+usersRouter.get("/:id/avatar", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
+  const [avatar] = await db
+    .select({ contentType: schema.userAvatars.contentType, data: schema.userAvatars.data })
+    .from(schema.userAvatars)
+    .where(eq(schema.userAvatars.userId, id))
+    .limit(1);
+  if (!avatar) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+
+  res
+    .set({
+      "Content-Type": avatar.contentType,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'",
+    })
+    .send(avatar.data);
 });

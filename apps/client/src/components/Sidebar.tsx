@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
 import type { User } from "@pm/shared";
+import { PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
+import { Avatar } from "./Avatar";
 import { CreateRoomModal } from "./CreateRoomModal";
 import { Invitations } from "./Invitations";
 import { ThemeToggle } from "./ThemeToggle";
 
-export function Sidebar({ me }: { me: User }) {
+export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
   const logout = useAuth((s) => s.logout);
   const roomsById = useRooms((s) => s.rooms);
   const activeRoomId = useRooms((s) => s.activeRoomId);
@@ -20,10 +22,19 @@ export function Sidebar({ me }: { me: User }) {
   return (
     <nav className="sidebar">
       <header className="sidebar-header">
-        <div>
-          <strong>{displayName(me)}</strong>
-          <div className="muted small">@{me.username}</div>
-        </div>
+        <button
+          type="button"
+          className={`profile-button ${onProfile ? "active" : ""}`}
+          title="Profile"
+          aria-current={onProfile ? "page" : undefined}
+          onClick={() => navigate(PROFILE_PATH)}
+        >
+          <Avatar user={me} size={36} />
+          <span className="profile-button-text">
+            <strong>{displayName(me)}</strong>
+            <span className="muted small">@{me.username}</span>
+          </span>
+        </button>
         <div className="sidebar-header-actions">
           <ThemeToggle />
           <button type="button" className="link" onClick={() => void logout()}>
@@ -55,8 +66,11 @@ export function Sidebar({ me }: { me: User }) {
             <li key={room.id}>
               <button
                 type="button"
-                className={`room-item ${room.id === activeRoomId ? "active" : ""}`}
-                onClick={() => setActive(room.id)}
+                className={`room-item ${room.id === activeRoomId && !onProfile ? "active" : ""}`}
+                onClick={() => {
+                  setActive(room.id);
+                  navigate("/");
+                }}
               >
                 <span className="room-name">{room.name}</span>
                 <span className="room-preview">{preview}</span>
