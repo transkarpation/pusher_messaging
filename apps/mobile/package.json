@@ -5,8 +5,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,6 +14,7 @@
     "@pm/shared": "workspace:*",
     "@react-native-community/netinfo": "12.0.1",
     "expo": "~58.0.26",
+    "expo-build-properties": "~58.0.12",
     "expo-constants": "~58.0.16",
     "expo-linking": "~58.0.17",
     "expo-router": "~58.0.32",

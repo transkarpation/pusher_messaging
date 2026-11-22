@@ -92,6 +92,8 @@ pnpm start                # then press a for Android, i for iOS, or scan the QR 
 
 `EXPO_PUBLIC_API_URL` in `apps/mobile/.env` is the address of the API server. Without it the app uses `http://10.0.2.2:3000` on the Android emulator and `http://localhost:3000` on the iOS simulator. On a phone, set it to your computer's LAN address, e.g. `http://192.168.1.20:3000`.
 
+Building an APK to install on a phone: see [apps/mobile/README.md](apps/mobile/README.md).
+
 How it differs from the web client:
 
 - **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. Realtime uses the same header: in the WebSocket handshake, or for Pusher channel authorization.
