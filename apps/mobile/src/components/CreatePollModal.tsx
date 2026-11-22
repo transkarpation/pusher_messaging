@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { POLL_MAX_OPTIONS, POLL_VOTE_LIMIT_MAX, POLL_VOTE_LIMIT_MIN, createPollSchema, type Message } from "@pm/shared";
 import { api } from "../lib/api";
 import { colors } from "../lib/theme";
@@ -60,6 +62,10 @@ export function CreatePollModal({
   const [submitting, setSubmitting] = useState(false);
 
   const full = options.length >= POLL_MAX_OPTIONS;
+  // On Android the modal covers the whole screen, status and navigation bars included (on iOS it's a
+  // sheet below the status bar), so keep the header and the last field clear of them.
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === "android" ? insets.top : 0;
 
   const reset = () => {
     setQuestion("");
@@ -118,7 +124,7 @@ export function CreatePollModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: styles.header.paddingVertical + topInset }]}>
           <Pressable onPress={close} disabled={submitting} hitSlop={8}>
             <Text style={[styles.headerButton, submitting && styles.disabled]}>Cancel</Text>
           </Pressable>
@@ -130,7 +136,7 @@ export function CreatePollModal({
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: styles.content.padding + insets.bottom }]} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>Question</Text>
           <TextInput
             style={styles.input}
