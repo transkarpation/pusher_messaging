@@ -88,3 +88,36 @@ export function disconnectRealtime() {
   current = null;
   setSocketId(undefined);
 }
+
+/** Handlers to bind on a channel, by event name. */
+export type Handlers = Record<string, (data: never) => void>;
+
+/** How many screens listen to each channel, per connection. */
+const listeners = new WeakMap<RealtimeConnection, Map<string, number>>();
+
+/**
+ * Binds `handlers` on the channel `name`, subscribing to it if needed. The returned function
+ * unbinds them and leaves the channel once no other screen listens to it. Screens share channels
+ * (the room list and an open room both listen to the room's channel), so don't `unbindAll` or
+ * `unsubscribe` a channel directly.
+ */
+export function listen(conn: RealtimeConnection, name: string, handlers: Handlers): () => void {
+  let counts = listeners.get(conn);
+  if (!counts) listeners.set(conn, (counts = new Map()));
+  counts.set(name, (counts.get(name) ?? 0) + 1);
+  const channel = conn.subscribe(name);
+  for (const [event, handler] of Object.entries(handlers)) channel.bind(event, handler);
+
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    for (const [event, handler] of Object.entries(handlers)) channel.unbind(event, handler);
+    const left = (counts.get(name) ?? 1) - 1;
+    if (left > 0) counts.set(name, left);
+    else {
+      counts.delete(name);
+      conn.unsubscribe(name);
+    }
+  };
+}

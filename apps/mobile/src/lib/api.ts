@@ -3,9 +3,14 @@ import {
   resolveApiUrl,
   type AuthRequest,
   type CreateMessageInput,
+  type CreatePollInput,
   type Message,
   type MessagesResponse,
   type PhoenixTokenResponse,
+  type Poll,
+  type PollCommentInput,
+  type PollOptionInput,
+  type PollVoteInput,
   type Receipt,
   type RealtimeConfig,
   type Room,
@@ -66,6 +71,9 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
 
 const room = (id: number) => `/rooms/${id}`;
 
+/** Receipt updates on their way to the server (see `api.receiptsSettled`). */
+const receiptsInFlight = new Set<Promise<Receipt>>();
+
 export const api = {
   login: (c: Omit<AuthRequest, "session">) =>
     request<TokenAuthResponse>("/auth/login", "POST", { ...c, session: "token" } satisfies AuthRequest),
@@ -79,9 +87,25 @@ export const api = {
     request<MessagesResponse>(`${room(roomId)}/messages${before !== undefined ? `?before=${before}` : ""}`),
   createMessage: (roomId: number, input: CreateMessageInput) =>
     request<Message>(`${room(roomId)}/messages`, "POST", input),
+  /** Room owner only; returns the poll's message. */
+  createPoll: (roomId: number, input: CreatePollInput) => request<Message>(`${room(roomId)}/polls`, "POST", input),
+  /** Replaces the user's whole choice; [] takes the vote back. */
+  votePoll: (roomId: number, messageId: number, input: PollVoteInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/votes`, "PUT", input),
+  addPollOption: (roomId: number, messageId: number, input: PollOptionInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/options`, "POST", input),
+  commentPoll: (roomId: number, messageId: number, input: PollCommentInput) =>
+    request<Poll>(`${room(roomId)}/polls/${messageId}/comments`, "POST", input),
+
   /** Moves this user's delivered/read watermarks in a room forward; returns the resulting receipt. */
-  updateReceipt: (roomId: number, input: UpdateReceiptInput) =>
-    request<Receipt>(`${room(roomId)}/receipts`, "POST", input),
+  updateReceipt: (roomId: number, input: UpdateReceiptInput) => {
+    const req = request<Receipt>(`${room(roomId)}/receipts`, "POST", input);
+    receiptsInFlight.add(req);
+    void req.catch(() => {}).finally(() => receiptsInFlight.delete(req));
+    return req;
+  },
+  /** Resolves once the receipt updates sent so far have finished, so unread counts fetched after it include them. */
+  receiptsSettled: () => Promise.allSettled([...receiptsInFlight]),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
   getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),

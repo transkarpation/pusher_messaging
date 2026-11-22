@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -13,27 +13,33 @@ import {
 } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import type { RealtimeConnection } from "@pm/realtime-client";
 import {
   MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
   POLL_UPDATED_EVENT,
+  POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
+  ROOM_MEMBERS_EVENT,
   deliveryOf,
   isInlineImage,
   isSystemMessage,
   mergeReceipt,
   roomChannel,
+  userChannel,
   type Message,
   type MessageDelivery,
   type Poll,
   type PollUpdatedEvent,
+  type PollVotedEvent,
   type Receipt,
+  type RoomMembersEvent,
 } from "@pm/shared";
+import { CreatePollModal } from "../../components/CreatePollModal";
+import { PollCard } from "../../components/PollCard";
 import { absoluteUrl, api, authHeaders } from "../../lib/api";
 import { displayName, time } from "../../lib/format";
-import { getRealtime } from "../../lib/realtime";
+import { getRealtime, listen } from "../../lib/realtime";
 import { useSession } from "../../lib/session";
 import { colors } from "../../lib/theme";
 
@@ -51,9 +57,6 @@ const mergeReceipts = (prev: Record<number, Receipt>, next: Receipt[]) => {
   return out;
 };
 
-/** Waits this long (ms) after the latest message changes before reporting it read, so a burst sends one request. */
-const READ_REPORT_DELAY = 300;
-
 /** True while the app is in the foreground, i.e. the open room is actually on screen. */
 function useAppActive() {
   const [active, setActive] = useState(AppState.currentState === "active");
@@ -68,9 +71,12 @@ function useAppActive() {
 const NEAR_BOTTOM_THRESHOLD = 80;
 
 export default function RoomScreen() {
-  const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
+  const { id, name, owner } = useLocalSearchParams<{ id: string; name?: string; owner?: string }>();
   const roomId = Number(id);
   const me = useSession((s) => s.user)!;
+  /** Only the room owner posts polls; passed by the room list, then kept current by `room:members`. */
+  const [isOwner, setIsOwner] = useState(owner === "1");
+  const [creatingPoll, setCreatingPoll] = useState(false);
   const headerHeight = useHeaderHeight();
   const [messages, setMessages] = useState<Message[]>([]);
   /** Delivered/read watermarks in this room by user id: the ✓ / ✓✓ on my messages. */
@@ -113,55 +119,65 @@ export default function RoomScreen() {
   const latestId = messages[0]?.id ?? 0;
   useEffect(() => {
     if (!loaded || !appActive || latestId <= reportedRead.current) return;
-    const timer = setTimeout(() => {
-      const previous = reportedRead.current;
-      reportedRead.current = latestId;
-      api
-        .updateReceipt(roomId, { readUpTo: latestId })
-        .then((r) => setReceipts((prev) => mergeReceipts(prev, [r])))
-        .catch((e) => {
-          reportedRead.current = previous; // retried when the next message arrives or the app comes back
-          console.warn("Failed to report read:", e);
-        });
-    }, READ_REPORT_DELAY);
-    return () => clearTimeout(timer);
+    const previous = reportedRead.current;
+    reportedRead.current = latestId;
+    api
+      .updateReceipt(roomId, { readUpTo: latestId })
+      .then((r) => setReceipts((prev) => mergeReceipts(prev, [r])))
+      .catch((e) => {
+        reportedRead.current = previous; // retried when the next message arrives or the app comes back
+        console.warn("Failed to report read:", e);
+      });
   }, [roomId, loaded, appActive, latestId]);
+
+  /** Replaces the poll of a loaded message with `fn(poll)`. */
+  const patchPoll = useCallback(
+    (messageId: number, fn: (poll: Poll) => Poll) =>
+      setMessages((prev) => prev.map((m) => (m.id === messageId && m.poll ? { ...m, poll: fn(m.poll) } : m))),
+    [],
+  );
+
+  /** A poll returned to my own request: the newer copy wins, but my votes in it are always current. */
+  const applyOwnPoll = useCallback(
+    (messageId: number, poll: Poll) => patchPoll(messageId, (p) => (poll.version >= p.version ? poll : { ...p, myVotes: poll.myVotes })),
+    [patchPoll],
+  );
 
   // New, edited and deleted messages from others, poll results and receipts, live.
   useEffect(() => {
-    const channelName = roomChannel(roomId);
     const apply = (m: Message) => setMessages((prev) => merge(prev, [m]));
-    let rt: RealtimeConnection | null = null;
+    let stop: (() => void) | null = null;
+    let stopUser: (() => void) | null = null;
     let stopped = false;
     getRealtime()
       .then((conn) => {
         if (stopped) return;
-        rt = conn;
-        const channel = conn.subscribe(channelName);
-        channel.bind(MESSAGE_CREATED_EVENT, (m: Message) => {
-          apply(m);
-          if (m.author.id !== me.id && !atBottomRef.current) setUnseen((n) => n + 1);
+        stop = listen(conn, roomChannel(roomId), {
+          [MESSAGE_CREATED_EVENT]: (m: Message) => {
+            apply(m);
+            if (m.author.id !== me.id && !atBottomRef.current) setUnseen((n) => n + 1);
+          },
+          [MESSAGE_UPDATED_EVENT]: apply,
+          [MESSAGE_DELETED_EVENT]: apply,
+          [RECEIPT_UPDATED_EVENT]: (r: Receipt) => setReceipts((prev) => mergeReceipts(prev, [r])),
+          // Everyone's view of a poll; my own votes stay as they are (they come with POLL_VOTED_EVENT).
+          [POLL_UPDATED_EVENT]: (e: PollUpdatedEvent) =>
+            patchPoll(e.messageId, (p) => (e.poll.version < p.version ? p : { ...e.poll, myVotes: p.myVotes })),
+          [ROOM_MEMBERS_EVENT]: (e: RoomMembersEvent) =>
+            setIsOwner(e.members.some((m) => m.user.id === me.id && m.role === "owner")),
         });
-        channel.bind(MESSAGE_UPDATED_EVENT, apply);
-        channel.bind(MESSAGE_DELETED_EVENT, apply);
-        channel.bind(RECEIPT_UPDATED_EVENT, (r: Receipt) => setReceipts((prev) => mergeReceipts(prev, [r])));
-        channel.bind(POLL_UPDATED_EVENT, (e: PollUpdatedEvent) =>
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === e.messageId && m.poll && e.poll.version >= m.poll.version
-                ? { ...m, poll: { ...e.poll, myVotes: m.poll.myVotes } }
-                : m,
-            ),
-          ),
-        );
+        // My vote changed on another device.
+        stopUser = listen(conn, userChannel(me.id), {
+          [POLL_VOTED_EVENT]: (e: PollVotedEvent) => e.roomId === roomId && patchPoll(e.messageId, (p) => ({ ...p, myVotes: e.myVotes })),
+        });
       })
       .catch((e) => console.warn("Realtime is unavailable:", e));
     return () => {
       stopped = true;
-      rt?.channel(channelName)?.unbindAll();
-      rt?.unsubscribe(channelName);
+      stop?.();
+      stopUser?.();
     };
-  }, [roomId, me.id]);
+  }, [roomId, me.id, patchPoll]);
 
   const scrollToLatest = () => listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
@@ -219,7 +235,12 @@ export default function RoomScreen() {
             onEndReachedThreshold={0.3}
             ListFooterComponent={loadingOlder ? <ActivityIndicator style={styles.loading} /> : undefined}
             renderItem={({ item }) => (
-              <MessageItem message={item} meId={me.id} delivery={item.author.id === me.id ? deliveryOf(item, receipts) : undefined} />
+              <MessageItem
+                message={item}
+                meId={me.id}
+                delivery={item.author.id === me.id ? deliveryOf(item, receipts) : undefined}
+                onPoll={applyOwnPoll}
+              />
             )}
             extraData={receipts}
             // The list is inverted, so "top" here is the bottom of the chat: new messages keep
@@ -250,6 +271,17 @@ export default function RoomScreen() {
       )}
       {error && <Text style={styles.error}>{error}</Text>}
       <View style={styles.composer}>
+        {isOwner && (
+          <Pressable
+            style={({ pressed }) => [styles.pollButton, pressed && styles.jumpPressed]}
+            onPress={() => setCreatingPoll(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Create a poll"
+            hitSlop={6}
+          >
+            <Text style={styles.pollButtonText}>📊</Text>
+          </Pressable>
+        )}
         <TextInput
           style={styles.input}
           placeholder="Message"
@@ -261,18 +293,37 @@ export default function RoomScreen() {
           <Text style={styles.sendText}>Send</Text>
         </Pressable>
       </View>
+      <CreatePollModal
+        roomId={roomId}
+        visible={creatingPoll}
+        onClose={() => setCreatingPoll(false)}
+        onCreated={(message) => {
+          setMessages((prev) => merge(prev, [message]));
+          scrollToLatest();
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
 
-function MessageItem({ message: m, meId, delivery }: { message: Message; meId: number; delivery?: MessageDelivery }) {
+function MessageItem({
+  message: m,
+  meId,
+  delivery,
+  onPoll,
+}: {
+  message: Message;
+  meId: number;
+  delivery?: MessageDelivery;
+  onPoll: (messageId: number, poll: Poll) => void;
+}) {
   const own = m.author.id === meId;
   if (isSystemMessage(m)) {
     const who = own ? "You" : displayName(m.author);
     return <Text style={styles.system}>{m.kind === "member_joined" ? `${who} joined the room` : `${who} left the room`}</Text>;
   }
   return (
-    <View style={[styles.bubble, own ? styles.own : styles.other]}>
+    <View style={[styles.bubble, own ? styles.own : styles.other, m.poll && !m.deletedAt && styles.pollBubble]}>
       {!own && <Text style={styles.author}>{displayName(m.author)}</Text>}
       {m.deletedAt ? (
         <Text style={styles.deleted}>{own ? "You deleted this message" : "This message was deleted"}</Text>
@@ -289,7 +340,7 @@ function MessageItem({ message: m, meId, delivery }: { message: Message; meId: n
             ),
           )}
           {m.text !== "" && <Text style={styles.text}>{m.text}</Text>}
-          {m.poll && <PollSummary poll={m.poll} />}
+          {m.poll && <PollCard message={m} meId={meId} onPoll={(poll) => onPoll(m.id, poll)} />}
         </>
       )}
       <View style={styles.metaRow}>
@@ -317,28 +368,6 @@ function DeliveryStatus({ delivery: d }: { delivery: MessageDelivery }) {
     <Text style={[styles.status, d.status === "read" && styles.statusRead]} accessibilityLabel={label}>
       {d.status === "sent" ? "✓" : "✓✓"}
     </Text>
-  );
-}
-
-/** A poll's results, read-only: voting, suggestions and comments are in the web app for now. */
-function PollSummary({ poll }: { poll: Poll }) {
-  const mine = new Set(poll.myVotes);
-  return (
-    <View style={styles.poll}>
-      <Text style={styles.pollQuestion}>📊 {poll.question}</Text>
-      {poll.options.map((o) => {
-        const percent = poll.voterCount === 0 ? 0 : Math.round((o.voteCount / poll.voterCount) * 100);
-        return (
-          <Text key={o.id} style={styles.text}>
-            {percent}% · {o.text}
-            {mine.has(o.id) ? " ✓" : ""}
-          </Text>
-        );
-      })}
-      <Text style={styles.deleted}>
-        {poll.voterCount === 1 ? "1 vote" : `${poll.voterCount} votes`} · vote in the web app
-      </Text>
-    </View>
   );
 }
 
@@ -385,8 +414,9 @@ const styles = StyleSheet.create({
   meta: { fontSize: 11, color: colors.muted },
   status: { fontSize: 12, color: colors.muted, letterSpacing: -2, paddingRight: 2 },
   statusRead: { color: colors.accent },
-  poll: { gap: 4 },
-  pollQuestion: { fontSize: 16, fontWeight: "600", color: colors.text },
+  pollBubble: { width: "85%", maxWidth: 420 },
+  pollButton: { width: 36, height: 38, alignItems: "center", justifyContent: "center" },
+  pollButtonText: { fontSize: 20 },
   system: { alignSelf: "center", fontSize: 12, color: colors.muted, marginVertical: 4 },
   error: { color: colors.error, paddingHorizontal: 12 },
   composer: {

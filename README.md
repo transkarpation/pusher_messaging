@@ -81,7 +81,7 @@ Demo users are recognized by username. Deleting them also deletes the rooms they
 
 ## Mobile app
 
-`apps/mobile` is an Expo app in the same workspace: it uses `@pm/shared` directly, so API changes show up as type errors in both clients. So far it covers signing in, the room list and a room's messages (reading, sending, live updates).
+`apps/mobile` is an Expo app in the same workspace: it uses `@pm/shared` directly, so API changes show up as type errors in both clients. So far it covers signing in, the room list with live unread counts, a room's messages (reading, sending, live updates, delivered and read ticks) and polls.
 
 ```sh
 pnpm dev                  # the API has to be running
@@ -202,7 +202,7 @@ A poll is a message of kind `poll` with the poll in `Message.poll`. It shows up 
 
 Each of the last three returns the `Poll` as the caller sees it, with their own choice in `myVotes`, and sends the poll's new state to the room as `poll:updated` (`PollState`: the same for everyone, so without `myVotes`). A vote also goes to the voter's own channel as `poll:voted`, for their other tabs. Every change bumps `poll.version` under a row lock, and clients keep the copy with the higher version, so a stale fetch or a late event can't roll the results back.
 
-Voters see the results (percentages of the people who voted, and who voted unless the poll is anonymous) once they have voted. The mobile app shows polls read-only for now.
+Voters see the results (percentages of the people who voted, and who voted unless the poll is anonymous) once they have voted. The mobile app has polls too: the room owner creates them with 📊 next to the message field (options are reordered with ↑ ↓ instead of dragging), and members vote, suggest options and comment.
 
 ## Recovering missed events after a reconnect
 
