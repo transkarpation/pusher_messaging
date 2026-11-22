@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { credentialsSchema } from "@pm/shared";
+import { DemoAccounts } from "../components/DemoAccounts";
 import { API_URL } from "../lib/config";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
@@ -28,41 +29,45 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View style={styles.card}>
-        <Text style={styles.title}>{mode === "login" ? "Sign in" : "Create account"}</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Username"
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoComplete="username"
-          value={username}
-          onChangeText={setUsername}
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          secureTextEntry
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          value={password}
-          onChangeText={setPassword}
-          onSubmitEditing={() => void submit()}
-        />
-        {error && <Text style={styles.error}>{error}</Text>}
-        <Pressable style={[styles.button, busy && styles.disabled]} disabled={busy} onPress={() => void submit()}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{mode === "login" ? "Sign in" : "Sign up"}</Text>}
-        </Pressable>
-        <Pressable onPress={() => setMode(mode === "login" ? "register" : "login")}>
-          <Text style={styles.link}>{mode === "login" ? "No account? Sign up" : "Have an account? Sign in"}</Text>
-        </Pressable>
-        <Text style={styles.server}>Server: {API_URL}</Text>
-      </View>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.card}>
+          <Text style={styles.title}>{mode === "login" ? "Sign in" : "Create account"}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Username"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="username"
+            value={username}
+            onChangeText={setUsername}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            secureTextEntry
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            value={password}
+            onChangeText={setPassword}
+            onSubmitEditing={() => void submit()}
+          />
+          {error && <Text style={styles.error}>{error}</Text>}
+          <Pressable style={[styles.button, busy && styles.disabled]} disabled={busy} onPress={() => void submit()}>
+            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{mode === "login" ? "Sign in" : "Sign up"}</Text>}
+          </Pressable>
+          <Pressable onPress={() => setMode(mode === "login" ? "register" : "login")}>
+            <Text style={styles.link}>{mode === "login" ? "No account? Sign up" : "Have an account? Sign in"}</Text>
+          </Pressable>
+          <Text style={styles.server}>Server: {API_URL}</Text>
+        </View>
+        {__DEV__ && <DemoAccounts />}
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: "center", padding: 16, backgroundColor: colors.bg },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  content: { flexGrow: 1, justifyContent: "center", gap: 16, padding: 16, paddingTop: 48 },
   card: { gap: 12, padding: 20, borderRadius: 12, backgroundColor: colors.card },
   title: { fontSize: 22, fontWeight: "600", color: colors.text },
   input: {

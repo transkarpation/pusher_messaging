@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { DevBanner } from "../components/DevBanner";
 import { useSession } from "../lib/session";
 import { colors } from "../lib/theme";
 
@@ -23,7 +24,7 @@ export default function RootLayout() {
 
   const signedIn = status === "signedIn";
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style="dark" />
       <Stack screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
         <Stack.Protected guard={signedIn}>
@@ -34,6 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="login" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
-    </>
+      <DevBanner />
+    </View>
   );
 }

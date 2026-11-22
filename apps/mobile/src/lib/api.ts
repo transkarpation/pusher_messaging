@@ -8,6 +8,7 @@ import {
   type PhoenixTokenResponse,
   type RealtimeConfig,
   type Room,
+  type SeedsResponse,
   type TokenAuthResponse,
   type User,
 } from "@pm/shared";
@@ -79,5 +80,8 @@ export const api = {
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
   getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),
+
+  /** Public: demo accounts from `pnpm db:seed` with their passwords (404 on a production server). */
+  getSeeds: () => request<SeedsResponse>("/seeds"),
 
 };
