@@ -13,7 +13,7 @@ import {
   MessagesService,
   RoomsService,
 } from "./modules/chat/index.js";
-import { PusherGateway, RealtimeService, pusherConfigFromEnv } from "./modules/realtime/index.js";
+import { RealtimeService, WsGateway } from "./modules/realtime/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
 import { DrizzleTransactor } from "./shared/transaction.js";
@@ -24,25 +24,25 @@ import { DrizzleTransactor } from "./shared/transaction.js";
  * nothing else constructs them.
  */
 export function createContainer() {
-  const pusher = new PusherGateway(pusherConfigFromEnv());
+  const gateway = new WsGateway();
   const tx = new DrizzleTransactor(db);
 
-  const users = new UsersService(new DrizzleUsersRepository(db), pusher);
+  const users = new UsersService(new DrizzleUsersRepository(db), gateway);
   const auth = new AuthService(new DrizzleSessionsRepository(db), users);
-  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, pusher);
+  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, gateway);
 
   const roomsRepo = new DrizzleRoomsRepository(db);
   const messagesRepo = new DrizzleMessagesRepository(db);
   const invitesRepo = new DrizzleInvitesRepository(db);
   const attachmentsRepo = new DrizzleAttachmentsRepository(db);
   const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, users, blocks);
-  const events = new ChatEvents(pusher, views);
+  const events = new ChatEvents(gateway, views);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, views, events);
   const attachments = new AttachmentsService(attachmentsRepo);
 
-  const realtime = new RealtimeService(pusher, rooms);
+  const realtime = new RealtimeService(rooms);
   const seeds = new SeedsService(users, rooms, process.env.NODE_ENV !== "production");
 
   return {
@@ -54,7 +54,7 @@ export function createContainer() {
     messages,
     attachments,
     realtime,
-    realtimeConfig: { pusher: { key: pusher.config.key, cluster: pusher.config.cluster } },
+    gateway,
     seeds,
   };
 }

@@ -18,7 +18,7 @@ export function idParam(value: string | undefined, message: string): number {
 }
 
 /**
- * Who is making a request: the signed-in user, plus their Pusher socket id (if sent),
+ * Who is making a request: the signed-in user, plus their realtime socket id (if sent),
  * so realtime events their request causes can skip the connection that already has the result.
  */
 export interface Actor {
