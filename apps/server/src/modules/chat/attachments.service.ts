@@ -6,8 +6,10 @@ import {
   isInlineMedia,
   type Attachment,
 } from "@pm/shared";
-import { badRequest, notFound } from "../../shared/errors.js";
+import { randomUUID } from "node:crypto";
+import { AppError, badRequest, notFound } from "../../shared/errors.js";
 import type { Actor } from "../../shared/http.js";
+import type { AttachmentStorage, S3Store } from "../storage/index.js";
 import type { AttachmentRow, AttachmentsRepository } from "./attachments.repository.js";
 
 /** Uploads not sent with a message within this long are cleaned up on the uploader's next upload. */
@@ -62,8 +64,18 @@ function cleanContentType(raw: string | undefined): string {
 }
 
 /** Files attached to messages in a room the actor belongs to (checked at the HTTP edge). */
+/**
+ * New uploads go to `storage` (Postgres or the S3 bucket); files stored earlier are served from
+ * wherever they were put, so turning S3 on needs no migration of old files.
+ */
 export class AttachmentsService {
-  constructor(private readonly attachments: AttachmentsRepository) {}
+  constructor(
+    private readonly attachments: AttachmentsRepository,
+    private readonly storage: AttachmentStorage,
+    private readonly s3: S3Store | null,
+  ) {
+    if (storage === "s3" && !s3) throw new Error("S3 storage needs an S3 bucket");
+  }
 
   /** Stores an upload; it's linked to a message when one is sent with its id. */
   /** `durationMs` and `waveform` (raw header values) are kept for audio only, when valid. */
@@ -74,25 +86,57 @@ export class AttachmentsService {
   ): Promise<Attachment> {
     if (!Buffer.isBuffer(file.data) || file.data.length === 0) throw badRequest("The file is empty");
     if (file.data.length > ATTACHMENT_MAX_BYTES) throw badRequest("The file is too large");
-    await this.attachments.deleteUnsent(actor.user.id, new Date(Date.now() - UNSENT_TTL_MS));
+    await this.discardObjects(await this.attachments.deleteUnsent(actor.user.id, new Date(Date.now() - UNSENT_TTL_MS)));
     const contentType = cleanContentType(file.contentType);
     const audio = isInlineAudio(contentType);
-    const row = await this.attachments.create({
+    const meta = {
       roomId,
       uploaderId: actor.user.id,
       name: cleanFileName(file.name),
       contentType,
       durationMs: audio ? parseDuration(file.durationMs) : null,
       waveform: audio ? parseWaveform(file.waveform) : null,
-      data: file.data,
-    });
-    return toAttachment(row);
+      size: file.data.length,
+    };
+    if (this.storage === "db") return toAttachment(await this.attachments.create({ ...meta, content: { data: file.data } }));
+
+    const storageKey = `${roomId}/${randomUUID()}`;
+    await this.s3!.put(storageKey, file.data, contentType);
+    try {
+      return toAttachment(await this.attachments.create({ ...meta, content: { storageKey } }));
+    } catch (err) {
+      await this.discardObjects([storageKey]);
+      throw err;
+    }
   }
 
   /** The file, with whether it's safe to show inline (a raster image or audio) rather than download. */
   async download(viewerId: number, roomId: number, id: number) {
     const file = await this.attachments.findVisible(roomId, id, viewerId);
     if (!file) throw notFound("Attachment not found");
-    return { ...file, inline: isInlineMedia(file.contentType) };
+    const data = file.data ?? (await this.readObject(file.storageKey!));
+    return { name: file.name, contentType: file.contentType, data, inline: isInlineMedia(file.contentType) };
+  }
+
+  /**
+   * Removes the S3 objects of deleted attachments. Call after the rows are gone (and the
+   * transaction committed); a failure is only logged and leaves an orphaned object.
+   */
+  async discardObjects(keys: string[]) {
+    if (keys.length === 0) return;
+    if (!this.s3) {
+      console.error(`Can't delete ${keys.length} attachment object(s) from S3: S3_BUCKET is not set`);
+      return;
+    }
+    try {
+      await this.s3.delete(keys);
+    } catch (err) {
+      console.error("Failed to delete attachment objects from S3", keys, err);
+    }
+  }
+
+  private async readObject(key: string) {
+    if (!this.s3) throw new AppError(500, "The file is in S3, but S3_BUCKET is not set");
+    return this.s3.get(key);
   }
 }

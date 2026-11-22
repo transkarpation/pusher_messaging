@@ -4,6 +4,7 @@ import type { Actor } from "../../shared/http.js";
 import type { Transactor } from "../../shared/transaction.js";
 import type { AttachmentsRepository } from "./attachments.repository.js";
 import type { ChatEvents } from "./chat.events.js";
+import type { AttachmentsService } from "./attachments.service.js";
 import type { ChatViews } from "./chat.views.js";
 import type { MessagesRepository, PageCursor } from "./messages.repository.js";
 import type { PollsRepository } from "./polls.repository.js";
@@ -18,6 +19,7 @@ export class MessagesService {
     private readonly polls: PollsRepository,
     private readonly views: ChatViews,
     private readonly events: ChatEvents,
+    private readonly files: AttachmentsService,
   ) {}
 
   /** A page of messages (see `PageCursor`) as `viewerId` sees them, plus all receipts in the room. */
@@ -65,14 +67,15 @@ export class MessagesService {
    */
   async remove(actor: Actor, room: RoomAccess, messageId: number): Promise<Message> {
     const onlyAuthor = room.role === "owner" ? null : actor.user.id;
-    const row = await this.tx.run(async (tx) => {
+    const result = await this.tx.run(async (tx) => {
       const deleted = await this.messages.withTx(tx).updateLive(room.id, messageId, onlyAuthor, { type: "delete" });
-      if (deleted?.kind === "text") await this.attachments.withTx(tx).deleteForMessage(messageId);
+      const objects = deleted?.kind === "text" ? await this.attachments.withTx(tx).deleteForMessage(messageId) : [];
       if (deleted?.kind === "poll") await this.polls.withTx(tx).deleteForMessage(messageId);
-      return deleted;
+      return deleted && { deleted, objects };
     });
-    if (!row) throw await this.whyNot(room.id, messageId, "You can only delete your own messages");
-    const message = await this.views.message(row, [actor.user]);
+    if (!result) throw await this.whyNot(room.id, messageId, "You can only delete your own messages");
+    await this.files.discardObjects(result.objects);
+    const message = await this.views.message(result.deleted, [actor.user]);
     this.events.messageDeleted(message, actor.socketId);
     return message;
   }

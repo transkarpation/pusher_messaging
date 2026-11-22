@@ -4,7 +4,7 @@ Real-time chat with rooms, invitations, messages (editable and deletable) with f
 
 ## Stack
 
-- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `ws` for the own realtime endpoint, `pusher` for the Pusher driver
+- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `ws` for the own realtime endpoint, `pusher` for the Pusher driver, `@aws-sdk/client-s3` for attachments in S3
 - **Client** (`apps/client`): React 19, Zustand, Vite, pusher-js / phoenix.js (each loaded only with its driver)
 - **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, pusher-js / phoenix.js (each only with its driver). See [Mobile app](#mobile-app)
 - **Realtime server, Phoenix** (`apps/realtime-server-phoenix`): Elixir, Phoenix channels and Presence, for the Phoenix driver. See [its README](apps/realtime-server-phoenix/README.md)
@@ -40,6 +40,7 @@ Real-time chat with rooms, invitations, messages (editable and deletable) with f
    | `REALTIME_DRIVER` | `ws` (default): the server's own WebSocket endpoint; `pusher`: Pusher Channels; `phoenix`: the Phoenix server |
    | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | only for `REALTIME_DRIVER=pusher`: from **App Keys** of a Channels app in the [Pusher Dashboard](https://dashboard.pusher.com/) |
    | `PHOENIX_SHARED_SECRET`, `PHOENIX_URL`, `PHOENIX_SOCKET_URL` | only for `REALTIME_DRIVER=phoenix`, see [its README](apps/realtime-server-phoenix/README.md) |
+   | `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | optional: an AWS S3 bucket for attachment files; without `S3_BUCKET` they're kept in Postgres. See [Attachment storage](#attachment-storage) |
 
    The clients need no `.env` for realtime. They ask `GET /api/realtime/config` which transport to use (and get the Pusher key and cluster, or the Phoenix socket URL, from it).
 
@@ -128,6 +129,7 @@ How it differs from the web client:
 | `blocks` | the block list |
 | `chat` | rooms, members, invitations, messages, receipts, typing |
 | `realtime` | publishing events (`RealtimePublisher`) through `WsGateway`, `PusherGateway` or `PhoenixGateway`, channel authorization, `/api/realtime` routes |
+| `storage` | `S3Store` for attachment bytes in AWS S3, `S3_*` config |
 | `seeds` | demo accounts for `/seeds` |
 | `docs` | OpenAPI document and Swagger UI |
 
@@ -161,6 +163,23 @@ The client loads its initial state over REST: `GET /api/rooms` for the room list
 **Pusher.** pusher-js connects to Pusher and gets private and presence channels signed by `POST /api/realtime/pusher/auth` (cookie on the web, Bearer on mobile). The adapter turns pusher-js's `pusher:subscription_succeeded`, `pusher:member_added` and so on into the same `realtime:*` events the own client emits. The apps load pusher-js only when this driver is on.
 
 **Phoenix.** A separate Phoenix server holds the connections. The API publishes to it over HTTP, it asks the API whether a user may join a channel, and clients connect with a short-lived token from `GET /api/realtime/phoenix/token`. Details and how to run it: [apps/realtime-server-phoenix/README.md](apps/realtime-server-phoenix/README.md).
+
+## Attachment storage
+
+Attachment files are kept in Postgres (the `attachment_data` table) unless an AWS S3 bucket is configured in `apps/server/.env`:
+
+| Variable | Description |
+|---|---|
+| `S3_BUCKET` | the bucket; setting it switches new uploads to S3 |
+| `S3_REGION` | the bucket's region, e.g. `eu-central-1` (required with `S3_BUCKET`) |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | an IAM user's keys; leave both empty to use the default AWS credentials (`AWS_*` variables, `~/.aws` profile, EC2/ECS role) |
+| `S3_PREFIX` | prepended to object keys, `attachments/` by default |
+
+Restart the server after changing them; it logs which storage is on. Objects are named `{S3_PREFIX}{roomId}/{uuid}`. The credentials need `s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on `arn:aws:s3:::{bucket}/{S3_PREFIX}*`.
+
+Each attachment row remembers where its bytes are (`attachments.storage_key`: an S3 key, or null for Postgres), so turning S3 on needs no migration: files uploaded before keep being served from Postgres. Removing `S3_BUCKET` later sends new uploads back to Postgres, but files already in S3 can then no longer be read.
+
+Downloads still go through `GET /api/rooms/{roomId}/attachments/{id}`, so the bucket stays private (block all public access): the server checks room membership and reads the object. When a message is deleted, or an unsent upload expires, its object is deleted from the bucket after the database change; a failed delete is logged and leaves an orphaned object.
 
 ## Invitations
 

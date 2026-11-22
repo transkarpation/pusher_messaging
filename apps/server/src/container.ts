@@ -26,6 +26,7 @@ import {
   realtimeDriverFromEnv,
   type RealtimePublisher,
 } from "./modules/realtime/index.js";
+import { S3Store, s3ConfigFromEnv, type AttachmentStorage } from "./modules/storage/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
 import { DrizzleTransactor } from "./shared/transaction.js";
@@ -62,8 +63,11 @@ export function createContainer() {
   const events = new ChatEvents(publisher, views);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
-  const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, pollsRepo, views, events);
-  const attachments = new AttachmentsService(attachmentsRepo);
+  // Attachment bytes go to the S3 bucket when S3_BUCKET is set, else to Postgres.
+  const s3Config = s3ConfigFromEnv();
+  const attachmentStorage: AttachmentStorage = s3Config ? "s3" : "db";
+  const attachments = new AttachmentsService(attachmentsRepo, attachmentStorage, s3Config && new S3Store(s3Config));
+  const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, pollsRepo, views, events, attachments);
   const polls = new PollsService(tx, messagesRepo, pollsRepo, views, events);
 
   const realtime = new RealtimeService(rooms, users);
@@ -84,6 +88,7 @@ export function createContainer() {
     pusher,
     phoenix,
     realtimeConfig,
+    attachmentStorage,
     seeds,
   };
 }

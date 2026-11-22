@@ -159,6 +159,8 @@ export const attachments = pgTable(
     /** Audio recorded in the app: length and waveform, sent by the client with the upload. */
     durationMs: integer("duration_ms"),
     waveform: smallint("waveform").array(),
+    /** The object key in the S3 bucket holding the bytes; null: they're in `attachment_data`. */
+    storageKey: varchar("storage_key", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -167,7 +169,7 @@ export const attachments = pgTable(
   ],
 );
 
-/** Attachment bytes, kept apart so listing attachments never loads them. */
+/** Attachment bytes stored in Postgres, kept apart so listing attachments never loads them. */
 export const attachmentData = pgTable("attachment_data", {
   attachmentId: integer("attachment_id")
     .primaryKey()

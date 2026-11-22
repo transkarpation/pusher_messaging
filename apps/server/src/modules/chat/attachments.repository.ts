@@ -33,7 +33,17 @@ export interface NewAttachment {
   contentType: string;
   durationMs: number | null;
   waveform: number[] | null;
-  data: Buffer;
+  size: number;
+  /** The bytes, kept in Postgres, or the key of the S3 object already holding them. */
+  content: { data: Buffer } | { storageKey: string };
+}
+
+/** Where a visible attachment's bytes are: inline, or in S3 under `storageKey`. */
+export interface StoredFile {
+  name: string;
+  contentType: string;
+  data: Buffer | null;
+  storageKey: string | null;
 }
 
 export interface AttachmentsRepository {
@@ -46,9 +56,13 @@ export interface AttachmentsRepository {
   link(ids: number[], roomId: number, uploaderId: number, messageId: number): Promise<number>;
   /** Attachments of the messages, in upload order. */
   forMessages(messageIds: number[]): Promise<AttachmentRow[]>;
-  deleteForMessage(messageId: number): Promise<void>;
-  /** Deletes the uploader's attachments never sent with a message and uploaded before `before`. */
-  deleteUnsent(uploaderId: number, before: Date): Promise<void>;
+  /** Returns the S3 keys of the deleted attachments, for removing their objects. */
+  deleteForMessage(messageId: number): Promise<string[]>;
+  /**
+   * Deletes the uploader's attachments never sent with a message and uploaded before `before`.
+   * Returns the S3 keys of the deleted attachments.
+   */
+  deleteUnsent(uploaderId: number, before: Date): Promise<string[]>;
   /**
    * An attachment of the room with its bytes, if `viewerId` may see it: it's on a live
    * message, or it's their own upload that isn't sent yet.
@@ -57,7 +71,7 @@ export interface AttachmentsRepository {
     roomId: number,
     id: number,
     viewerId: number,
-  ): Promise<{ name: string; contentType: string; data: Buffer } | null>;
+  ): Promise<StoredFile | null>;
 }
 
 export class DrizzleAttachmentsRepository implements AttachmentsRepository {
@@ -67,13 +81,14 @@ export class DrizzleAttachmentsRepository implements AttachmentsRepository {
     return new DrizzleAttachmentsRepository(executorOf(tx));
   }
 
-  async create({ data, ...meta }: NewAttachment) {
+  async create({ content, ...meta }: NewAttachment) {
     return this.db.transaction(async (tx) => {
+      const storageKey = "storageKey" in content ? content.storageKey : null;
       const [row] = await tx
         .insert(attachments)
-        .values({ ...meta, size: data.length })
+        .values({ ...meta, storageKey })
         .returning(attachmentColumns);
-      await tx.insert(attachmentData).values({ attachmentId: row!.id, data });
+      if ("data" in content) await tx.insert(attachmentData).values({ attachmentId: row!.id, data: content.data });
       return row!;
     });
   }
@@ -105,20 +120,31 @@ export class DrizzleAttachmentsRepository implements AttachmentsRepository {
   }
 
   async deleteForMessage(messageId: number) {
-    await this.db.delete(attachments).where(eq(attachments.messageId, messageId));
+    const rows = await this.db
+      .delete(attachments)
+      .where(eq(attachments.messageId, messageId))
+      .returning({ storageKey: attachments.storageKey });
+    return storageKeys(rows);
   }
 
   async deleteUnsent(uploaderId: number, before: Date) {
-    await this.db
+    const rows = await this.db
       .delete(attachments)
-      .where(and(eq(attachments.uploaderId, uploaderId), isNull(attachments.messageId), lt(attachments.createdAt, before)));
+      .where(and(eq(attachments.uploaderId, uploaderId), isNull(attachments.messageId), lt(attachments.createdAt, before)))
+      .returning({ storageKey: attachments.storageKey });
+    return storageKeys(rows);
   }
 
   async findVisible(roomId: number, id: number, viewerId: number) {
     const [row] = await this.db
-      .select({ name: attachments.name, contentType: attachments.contentType, data: attachmentData.data })
+      .select({
+        name: attachments.name,
+        contentType: attachments.contentType,
+        data: attachmentData.data,
+        storageKey: attachments.storageKey,
+      })
       .from(attachments)
-      .innerJoin(attachmentData, eq(attachmentData.attachmentId, attachments.id))
+      .leftJoin(attachmentData, eq(attachmentData.attachmentId, attachments.id))
       .leftJoin(messages, eq(messages.id, attachments.messageId))
       .where(
         and(
@@ -134,3 +160,6 @@ export class DrizzleAttachmentsRepository implements AttachmentsRepository {
     return row ?? null;
   }
 }
+
+const storageKeys = (rows: { storageKey: string | null }[]) =>
+  rows.flatMap((r) => (r.storageKey ? [r.storageKey] : []));
