@@ -30,7 +30,7 @@ export function createApp(c: Container) {
   app.use("/api/users", usersRoutes(c.users, requireAuth));
   app.use("/api/admin", adminRoutes(c.admin, requireAdmin));
   app.use("/api/blocks", blocksRoutes(c.blocks, requireAuth));
-  app.use("/api/realtime", realtimeRoutes(c.realtime, c.realtimeConfig, { pusher: c.pusher, phoenix: c.phoenix }, requireAuth));
+  app.use("/api/realtime", realtimeRoutes(c.realtime, c.realtimeConfig, c.pusher, requireAuth));
   app.use("/api/seeds", seedsRoutes(c.seeds));
   app.use("/api", docsRoutes());
 

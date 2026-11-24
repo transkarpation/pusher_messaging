@@ -23,7 +23,6 @@ import {
   type Invitation,
   type InviteInput,
   type Message,
-  type PhoenixTokenResponse,
   type Poll,
   type PollCommentInput,
   type PollOptionInput,
@@ -160,7 +159,6 @@ export const api = {
   declineInvitation: (roomId: number) => request<void>(`/invites/${roomId}/decline`, "POST"),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
-  getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),
 
 
   /** Public: demo accounts from `pnpm db:seed` with their passwords. */

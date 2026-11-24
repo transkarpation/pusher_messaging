@@ -7,7 +7,6 @@ import {
   type CreatePollInput,
   type Message,
   type MessagesResponse,
-  type PhoenixTokenResponse,
   type Poll,
   type PollCommentInput,
   type PollOptionInput,
@@ -116,7 +115,6 @@ export const api = {
   receiptsSettled: () => Promise.allSettled([...receiptsInFlight]),
 
   getRealtimeConfig: () => request<RealtimeConfig>("/realtime/config"),
-  getPhoenixToken: () => request<PhoenixTokenResponse>("/realtime/phoenix/token"),
 
   /** Public: demo accounts from `pnpm db:seed` with their passwords (404 on a production server). */
   getSeeds: () => request<SeedsResponse>("/seeds"),

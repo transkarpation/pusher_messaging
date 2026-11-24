@@ -17,16 +17,7 @@ import {
   RoomsService,
 } from "./modules/chat/index.js";
 import type { RealtimeConfig } from "@pm/shared";
-import {
-  PhoenixGateway,
-  PusherGateway,
-  RealtimeService,
-  WsGateway,
-  phoenixConfigFromEnv,
-  pusherConfigFromEnv,
-  realtimeDriverFromEnv,
-  type RealtimePublisher,
-} from "./modules/realtime/index.js";
+import { PusherGateway, RealtimeService, pusherConfigFromEnv } from "./modules/realtime/index.js";
 import { S3Store, s3ConfigFromEnv, type AttachmentStorage } from "./modules/storage/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
@@ -38,23 +29,15 @@ import { DrizzleTransactor } from "./shared/transaction.js";
  * nothing else constructs them.
  */
 export function createContainer() {
-  // Realtime transport, chosen by REALTIME_DRIVER: the own WebSocket gateway, Pusher or the Phoenix server.
-  const driver = realtimeDriverFromEnv();
-  const pusher = driver === "pusher" ? new PusherGateway(pusherConfigFromEnv()) : null;
-  const phoenix = driver === "phoenix" ? new PhoenixGateway(phoenixConfigFromEnv()) : null;
-  const gateway = driver === "ws" ? new WsGateway() : null;
-  const publisher: RealtimePublisher = (pusher ?? phoenix ?? gateway)!;
-  const realtimeConfig: RealtimeConfig = pusher
-    ? { driver: "pusher", key: pusher.config.key, cluster: pusher.config.cluster }
-    : phoenix
-      ? { driver: "phoenix", socketUrl: phoenix.config.socketUrl }
-      : { driver: "ws" };
+  // Realtime events go through Pusher Channels.
+  const pusher = new PusherGateway(pusherConfigFromEnv());
+  const realtimeConfig: RealtimeConfig = { key: pusher.config.key, cluster: pusher.config.cluster };
   const tx = new DrizzleTransactor(db);
 
-  const users = new UsersService(new DrizzleUsersRepository(db), publisher);
+  const users = new UsersService(new DrizzleUsersRepository(db), pusher);
   const auth = new AuthService(new DrizzleSessionsRepository(db), users);
   const admin = new AdminService(users, auth);
-  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, publisher);
+  const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, pusher);
 
   const roomsRepo = new DrizzleRoomsRepository(db);
   const messagesRepo = new DrizzleMessagesRepository(db);
@@ -62,7 +45,7 @@ export function createContainer() {
   const attachmentsRepo = new DrizzleAttachmentsRepository(db);
   const pollsRepo = new DrizzlePollsRepository(db);
   const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, pollsRepo, users, blocks);
-  const events = new ChatEvents(publisher, views);
+  const events = new ChatEvents(pusher, views);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   // Attachment bytes go to the S3 bucket when S3_BUCKET is set, else to Postgres.
@@ -72,7 +55,7 @@ export function createContainer() {
   const messages = new MessagesService(tx, messagesRepo, attachmentsRepo, pollsRepo, views, events, attachments);
   const polls = new PollsService(tx, messagesRepo, pollsRepo, views, events);
 
-  const realtime = new RealtimeService(rooms, users);
+  const realtime = new RealtimeService(rooms);
   const seeds = new SeedsService(users, rooms, process.env.NODE_ENV !== "production");
 
   return {
@@ -86,10 +69,7 @@ export function createContainer() {
     attachments,
     polls,
     realtime,
-    /** The WebSocket gateway to attach to the HTTP server; null with the Pusher driver. */
-    gateway,
     pusher,
-    phoenix,
     realtimeConfig,
     attachmentStorage,
     seeds,

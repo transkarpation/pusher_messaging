@@ -13,14 +13,12 @@
     "@pm/realtime-client": "workspace:*",
     "@pm/shared": "workspace:*",
     "lucide-react": "^1.78.0",
-    "phoenix": "^1.8.17",
     "pusher-js": "^8.6.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@types/phoenix": "^1.6.8",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",

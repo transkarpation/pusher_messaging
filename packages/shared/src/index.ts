@@ -656,72 +656,19 @@ export const SOCKET_ID_HEADER = "X-Socket-Id";
  */
 export const resolveApiUrl = (serverOrigin: string, path: string) => new URL(path, serverOrigin).toString();
 
-// ---- Realtime protocol ----------------------------------------------------
+// ---- Realtime transport --------------------------------------------------
 
-/**
- * The realtime WebSocket protocol between the server (apps/server, realtime module) and
- * @pm/realtime-client. Every frame is one JSON object with a `type`.
- *
- * Connecting: open a WebSocket to REALTIME_PATH on the API server. The session is taken
- * from `Authorization: Bearer <token>` or, for browsers, the session cookie. The server
- * answers with `connected` (carrying the connection's socket id) or closes the socket with
- * CLOSE_UNAUTHORIZED.
- *
- * Channels: `subscribe` → `subscribed` (with the member list on a presence channel) or
- * `subscription_error`. After that the server sends `event` frames for the channel, and on
- * a presence channel `member_added` / `member_removed` when a user's first connection joins
- * or their last one leaves.
- *
- * Liveness: the client sends `ping` when the connection has been quiet for a while and
- * expects `pong`; the server also pings at the WebSocket level and drops dead connections.
- */
-
-/** Path of the WebSocket endpoint on the API server. */
-export const REALTIME_PATH = "/api/realtime/ws";
-
-/**
- * Which realtime transport the server uses (REALTIME_DRIVER in its .env), served by
- * GET /api/realtime/config: its own WebSocket endpoint, Pusher Channels, or the Phoenix
- * server from apps/realtime-server-phoenix (`socketUrl` is its phoenix.js endpoint).
- */
-export type RealtimeConfig =
-  | { driver: "ws" }
-  | { driver: "pusher"; key: string; cluster: string }
-  | { driver: "phoenix"; socketUrl: string };
-
-/** Endpoint pusher-js posts to for private and presence channel signatures (Pusher driver only). */
-export const PUSHER_AUTH_PATH = "/api/realtime/pusher/auth";
-
-/** Endpoint that issues the token a client connects to the Phoenix server with (Phoenix driver only). */
-export const PHOENIX_TOKEN_PATH = "/api/realtime/phoenix/token";
-
-export interface PhoenixTokenResponse {
-  /** Pass as the `token` connect param. */
-  token: string;
-  expiresAt: string;
+/** The Pusher Channels app clients connect to, served by GET /api/realtime/config. */
+export interface RealtimeConfig {
+  key: string;
+  cluster: string;
 }
 
-/** Close code: no valid session (or a cookie session from another origin). Don't reconnect. */
-export const CLOSE_UNAUTHORIZED = 4001;
-/** Close code: the client broke the protocol (bad JSON, unknown frame, too many channels). */
-export const CLOSE_PROTOCOL_ERROR = 4002;
+/** Endpoint pusher-js posts to for private and presence channel signatures. */
+export const PUSHER_AUTH_PATH = "/api/realtime/pusher/auth";
 
 /** A user on a presence channel. `id` is the user's id as a string. */
 export interface PresenceMember {
   id: string;
   info: PresenceUserInfo;
 }
-
-export type ClientFrame =
-  | { type: "subscribe"; channel: string }
-  | { type: "unsubscribe"; channel: string }
-  | { type: "ping" };
-
-export type ServerFrame =
-  | { type: "connected"; socketId: string }
-  | { type: "subscribed"; channel: string; members?: PresenceMember[] }
-  | { type: "subscription_error"; channel: string; status: number; error: string }
-  | { type: "event"; channel: string; event: string; data: unknown }
-  | { type: "member_added"; channel: string; member: PresenceMember }
-  | { type: "member_removed"; channel: string; member: PresenceMember }
-  | { type: "pong" };

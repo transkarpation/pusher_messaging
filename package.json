@@ -11,8 +11,7 @@
     "db:migrate": "pnpm --filter server db:migrate",
     "db:seed": "pnpm --filter server db:seed",
     "db:set-role": "pnpm --filter server db:set-role",
-    "db:studio": "pnpm --filter server db:studio",
-    "realtime:phoenix": "docker compose --profile phoenix up --build realtime-phoenix"
+    "db:studio": "pnpm --filter server db:studio"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

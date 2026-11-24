@@ -1,23 +1,21 @@
 # pusher-messaging
 
-Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars, blocking users, and roles (user, admin, superadmin) with a user administration page. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
+Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars, blocking users, and roles (user, admin, superadmin) with a user administration page. Real-time updates go through [Pusher Channels](https://pusher.com/channels) (see [Realtime transport](#realtime-transport)).
 
 ## Stack
 
-- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `ws` for the own realtime endpoint, `pusher` for the Pusher driver, `@aws-sdk/client-s3` for attachments in S3
-- **Client** (`apps/client`): React 19, Zustand, Vite, pusher-js / phoenix.js (each loaded only with its driver)
-- **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, pusher-js / phoenix.js (each only with its driver). See [Mobile app](#mobile-app)
-- **Realtime server, Phoenix** (`apps/realtime-server-phoenix`): Elixir, Phoenix channels and Presence, for the Phoenix driver. See [its README](apps/realtime-server-phoenix/README.md)
-- **Shared** (`packages/shared`): zod schemas, types, channel and event names, the realtime protocol
-- **Realtime client** (`packages/realtime-client`): one connection interface for the web and mobile apps, with the own WebSocket client and pusher-js and phoenix.js adapters behind it
+- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `pusher` for publishing realtime events, `@aws-sdk/client-s3` for attachments in S3
+- **Client** (`apps/client`): React 19, Zustand, Vite, pusher-js
+- **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, pusher-js. See [Mobile app](#mobile-app)
+- **Shared** (`packages/shared`): zod schemas, types, channel and event names
+- **Realtime client** (`packages/realtime-client`): the realtime connection for the web and mobile apps: a pusher-js adapter behind a small `RealtimeConnection` interface
 
 ## Requirements
 
 - Node.js 22+
 - pnpm. The version is pinned in `packageManager` in `package.json`; `corepack enable` is the easiest way to get it.
 - Docker, for PostgreSQL
-- For the Pusher driver only: a Pusher Channels app (the free plan is enough)
-- For the Phoenix driver only: Docker (or Elixir 1.15+) to run `apps/realtime-server-phoenix`
+- A Pusher Channels app (the free plan is enough)
 
 ## Getting started
 
@@ -37,12 +35,10 @@ Real-time chat with rooms (with an optional picture), invitations, messages (edi
    |---|---|
    | `DATABASE_URL` | points to the database from `docker-compose.yml` by default |
    | `PORT` | API port, `3000` by default |
-   | `REALTIME_DRIVER` | `ws` (default): the server's own WebSocket endpoint; `pusher`: Pusher Channels; `phoenix`: the Phoenix server |
-   | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | only for `REALTIME_DRIVER=pusher`: from **App Keys** of a Channels app in the [Pusher Dashboard](https://dashboard.pusher.com/) |
-   | `PHOENIX_SHARED_SECRET`, `PHOENIX_URL`, `PHOENIX_SOCKET_URL` | only for `REALTIME_DRIVER=phoenix`, see [its README](apps/realtime-server-phoenix/README.md) |
+   | `PUSHER_APP_ID`, `PUSHER_KEY`, `PUSHER_SECRET`, `PUSHER_CLUSTER` | required: from **App Keys** of a Channels app in the [Pusher Dashboard](https://dashboard.pusher.com/) |
    | `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | optional: an AWS S3 bucket for attachment files; without `S3_BUCKET` they're kept in Postgres. See [Attachment storage](#attachment-storage) |
 
-   The clients need no `.env` for realtime. They ask `GET /api/realtime/config` which transport to use (and get the Pusher key and cluster, or the Phoenix socket URL, from it).
+   The clients need no `.env` for realtime. They get the Pusher key and cluster from `GET /api/realtime/config`.
 
 3. **Start the database and run migrations**
 
@@ -119,7 +115,7 @@ Building an APK to install on a phone: see [apps/mobile/README.md](apps/mobile/R
 
 How it differs from the web client:
 
-- **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. Realtime uses the same header: in the WebSocket handshake, or for Pusher channel authorization.
+- **Auth.** It signs in with `session: "token"` and sends `Authorization: Bearer <token>` instead of the cookie. The token is kept in `expo-secure-store`. Realtime uses the same header for Pusher channel authorization.
 - **Links.** `avatarUrl` and attachment `url` are paths on the API server. The app turns them into full URLs with `resolveApiUrl` from `@pm/shared` and loads images with the Bearer header, because attachments are served only to room members.
 
 ## Scripts
@@ -135,7 +131,6 @@ How it differs from the web client:
 | `pnpm db:seed` | creates demo users and conversations (see [Demo data](#demo-data)) |
 | `pnpm db:set-role <username> <role>` | gives an account the `user`, `admin` or `superadmin` role (see [Roles and administration](#roles-and-administration)) |
 | `pnpm db:studio` | opens Drizzle Studio to browse the database |
-| `pnpm realtime:phoenix` | builds and runs the Phoenix realtime server in Docker (for `REALTIME_DRIVER=phoenix`) |
 
 ## Server structure
 
@@ -152,7 +147,7 @@ How it differs from the web client:
 | `admin` | who may see, create and edit which accounts (`/api/admin`) |
 | `blocks` | the block list |
 | `chat` | rooms, members, invitations, messages, receipts, typing |
-| `realtime` | publishing events (`RealtimePublisher`) through `WsGateway`, `PusherGateway` or `PhoenixGateway`, channel authorization, `/api/realtime` routes |
+| `realtime` | publishing events (`RealtimePublisher`) through `PusherGateway`, channel authorization, `/api/realtime` routes |
 | `storage` | `S3Store` for attachment bytes in AWS S3, `S3_*` config |
 | `seeds` | demo accounts for `/seeds` |
 | `docs` | OpenAPI document and Swagger UI |
@@ -167,26 +162,19 @@ Modules use each other only through the facade exported from their `index.ts`, n
 | `private-user-{id}` | invitations received or gone, the user joined or was removed from a room, their own poll votes (for their other tabs) |
 | `private-room-{id}` | new, edited and deleted messages, poll results, typing, receipts, member and invite changes, the room renamed or its picture changed |
 
-Each `subscribe` is checked by `RealtimeService`: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. Each connection has a socket id; clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
+Each subscription to a private or presence channel is signed only after `RealtimeService` allows it: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. Each Pusher connection has a socket id; clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
 
 The client loads its initial state over REST: `GET /api/rooms` for the room list, and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
 
 ## Realtime transport
 
-`REALTIME_DRIVER` in `apps/server/.env` picks how events travel; restart the server after changing it. Nothing else changes: services publish through the `RealtimePublisher` interface, and the apps use the `RealtimeConnection` interface from `@pm/realtime-client`, with the same channel and event names either way. On start, the apps call `GET /api/realtime/config` and open the matching connection.
+Events travel through [Pusher Channels](https://pusher.com/channels). Services publish through the `RealtimePublisher` interface, and the apps use the `RealtimeConnection` interface from `@pm/realtime-client`, so the rest of the code doesn't depend on Pusher directly.
 
-| | `ws` (default) | `pusher` | `phoenix` |
-|---|---|---|---|
-| Server | `WsGateway`: WebSocket endpoint at `/api/realtime/ws` on the API server | `PusherGateway`: Pusher HTTP API; signs subscriptions at `POST /api/realtime/pusher/auth` | `PhoenixGateway`: posts events to `apps/realtime-server-phoenix`, issues its connect tokens, answers its join checks |
-| Clients | `RealtimeClient` | `createPusherConnection` wrapping pusher-js | `createPhoenixConnection` wrapping phoenix.js |
-| Scaling | one API process (subscriptions live in its memory) | any number of API processes | any number of API processes; Phoenix itself can be clustered |
-| Needs | nothing extra | a Pusher Channels app and the `PUSHER_*` variables | the Phoenix server running (`pnpm realtime:phoenix`) and `PHOENIX_SHARED_SECRET` |
+**Server.** `PusherGateway` publishes events through the Pusher HTTP API (`trigger`, with the caller's socket id excluded) and signs subscriptions at `POST /api/realtime/pusher/auth` (cookie on the web, Bearer on mobile).
 
-**Own WebSocket.** Clients open a WebSocket to `/api/realtime/ws` on the API server. It is authenticated like HTTP requests: the session cookie for browsers (accepted only when `Origin` is the server's own host), `Authorization: Bearer` for mobile. The frames are defined in `packages/shared` (`ClientFrame`, `ServerFrame`). Running several server instances would need a shared bus (e.g. Redis pub/sub) between them.
+**Clients.** On start, the apps call `GET /api/realtime/config` for the Pusher key and cluster and open the connection with `createPusherConnection`, which wraps pusher-js. The adapter turns pusher-js's `pusher:subscription_succeeded`, `pusher:member_added` and so on into transport-neutral `realtime:*` events.
 
-**Pusher.** pusher-js connects to Pusher and gets private and presence channels signed by `POST /api/realtime/pusher/auth` (cookie on the web, Bearer on mobile). The adapter turns pusher-js's `pusher:subscription_succeeded`, `pusher:member_added` and so on into the same `realtime:*` events the own client emits. The apps load pusher-js only when this driver is on.
-
-**Phoenix.** A separate Phoenix server holds the connections. The API publishes to it over HTTP, it asks the API whether a user may join a channel, and clients connect with a short-lived token from `GET /api/realtime/phoenix/token`. Details and how to run it: [apps/realtime-server-phoenix/README.md](apps/realtime-server-phoenix/README.md).
+**Scaling.** Pusher holds the connections, so any number of API processes can run side by side.
 
 ## Attachment storage
 
@@ -255,7 +243,7 @@ Voters see the results (percentages of the people who voted, and who voted unles
 
 ## Recovering missed events after a reconnect
 
-Neither transport stores events. Anything published while a client is disconnected (network loss, a laptop waking from sleep) never reaches it. `@pm/realtime-client` reconnects and resubscribes to every channel on its own, but the events from the gap are gone. Without a fix, the user would see holes in the message history, stale unread counts, and rooms they were added to or removed from that never show up or never go away.
+Pusher doesn't store events. Anything published while a client is disconnected (network loss, a laptop waking from sleep) never reaches it. pusher-js reconnects and resubscribes to every channel on its own, but the events from the gap are gone. Without a fix, the user would see holes in the message history, stale unread counts, and rooms they were added to or removed from that never show up or never go away.
 
 The client fixes this by refetching the affected state once realtime is back.
 
@@ -281,4 +269,4 @@ Paging by `after` only finds new messages, not edits or deletions of ones the cl
 - **Repeated reconnects.** Catch-ups for the same room don't overlap.
 - **Left room.** If the user leaves the room during a catch-up, the result is dropped.
 
-**Limitation.** Recovery depends on the client noticing the dropped connection. The own client pings the server after 25 s of silence and reconnects if nothing comes back within 10 s, so a drop can go unnoticed for up to ~35 s; pusher-js and phoenix.js do the same with their own timeouts. Very short drops it doesn't detect cause no resubscription, so no refetch.
+**Limitation.** Recovery depends on the client noticing the dropped connection. pusher-js pings Pusher after 120 s of silence and reconnects if nothing comes back within 30 s, so a drop can go unnoticed for up to ~150 s. Very short drops it doesn't detect cause no resubscription, so no refetch.

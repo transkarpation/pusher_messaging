@@ -13,7 +13,7 @@ import {
 /*
  * The parts of pusher-js this adapter uses, typed structurally so the package doesn't depend
  * on pusher-js: the app passes in the constructor it imported ("pusher-js" in browsers,
- * "pusher-js/react-native" in React Native), and only when the server uses the Pusher driver.
+ * "pusher-js/react-native" in React Native).
  */
 interface PusherChannelLike {
   bind_global(callback: (event: string, data: unknown) => void): unknown;

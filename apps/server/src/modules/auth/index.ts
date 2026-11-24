@@ -4,7 +4,6 @@ export { DrizzleSessionsRepository } from "./sessions.repository.js";
 export { authRoutes } from "./auth.routes.js";
 export {
   SESSION_COOKIE,
-  authenticateUpgrade,
   loadUser,
   requireAdmin,
   requireAuth,

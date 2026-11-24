@@ -24,7 +24,6 @@
     "expo-secure-store": "~58.0.3",
     "expo-status-bar": "~58.0.5",
     "expo-system-ui": "~58.0.7",
-    "phoenix": "^1.8.17",
     "pusher-js": "^8.6.0",
     "react": "19.3.0",
     "react-native": "0.88.1",
@@ -33,7 +32,6 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@types/phoenix": "^1.6.8",
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
   }
