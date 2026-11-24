@@ -6,6 +6,7 @@ export {
   SESSION_COOKIE,
   authenticateUpgrade,
   loadUser,
+  requireAdmin,
   requireAuth,
   type RequireAuth,
 } from "./auth.middleware.js";

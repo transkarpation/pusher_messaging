@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   customType,
   index,
@@ -13,6 +14,9 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+/** Account roles, lowest first (see `ROLES` in @pm/shared). */
+export const userRole = pgEnum("user_role", ["user", "admin", "superadmin"]);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: varchar("username", { length: 32 }).notNull().unique(),
@@ -20,6 +24,9 @@ export const users = pgTable("users", {
   name: varchar("name", { length: 64 }),
   /** When the current avatar was uploaded (null: no avatar); also versions its URL. */
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
+  role: userRole("role").notNull().default("user"),
+  /** The admin who created the account on the administration page; null for sign-ups. */
+  createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

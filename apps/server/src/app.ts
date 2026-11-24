@@ -1,7 +1,8 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import type { Container } from "./container.js";
-import { authRoutes, loadUser, requireAuth } from "./modules/auth/index.js";
+import { adminRoutes } from "./modules/admin/index.js";
+import { authRoutes, loadUser, requireAdmin, requireAuth } from "./modules/auth/index.js";
 import { blocksRoutes } from "./modules/blocks/index.js";
 import { invitationsRoutes, roomsRoutes } from "./modules/chat/index.js";
 import { docsRoutes } from "./modules/docs/docs.routes.js";
@@ -27,6 +28,7 @@ export function createApp(c: Container) {
   app.use("/api/rooms", roomsRoutes(c, requireAuth));
   app.use("/api/invites", invitationsRoutes(c.invites, requireAuth));
   app.use("/api/users", usersRoutes(c.users, requireAuth));
+  app.use("/api/admin", adminRoutes(c.admin, requireAdmin));
   app.use("/api/blocks", blocksRoutes(c.blocks, requireAuth));
   app.use("/api/realtime", realtimeRoutes(c.realtime, c.realtimeConfig, { pusher: c.pusher, phoenix: c.phoenix }, requireAuth));
   app.use("/api/seeds", seedsRoutes(c.seeds));

@@ -7,6 +7,7 @@ const { sessions } = schema;
 export interface SessionsRepository {
   create(idHash: string, userId: number, expiresAt: Date): Promise<void>;
   delete(idHash: string): Promise<void>;
+  deleteForUser(userId: number): Promise<void>;
   /** The user of an unexpired session, or null. */
   findUserId(idHash: string, now: Date): Promise<number | null>;
 }
@@ -20,6 +21,10 @@ export class DrizzleSessionsRepository implements SessionsRepository {
 
   async delete(idHash: string) {
     await this.db.delete(sessions).where(eq(sessions.id, idHash));
+  }
+
+  async deleteForUser(userId: number) {
+    await this.db.delete(sessions).where(eq(sessions.userId, userId));
   }
 
   async findUserId(idHash: string, now: Date) {

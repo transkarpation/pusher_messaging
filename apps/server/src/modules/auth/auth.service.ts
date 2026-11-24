@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { Credentials, User } from "@pm/shared";
+import type { Credentials, SessionUser } from "@pm/shared";
 import { conflict, unauthorized } from "../../shared/errors.js";
 import type { UsersService } from "../users/index.js";
 import { hashPassword, verifyPassword } from "./password.js";
@@ -9,7 +9,7 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** A new session: the token goes to the client (in a cookie, or as a Bearer token); only its hash is stored. */
 export interface Session {
-  user: User;
+  user: SessionUser;
   token: string;
   expiresAt: Date;
 }
@@ -42,13 +42,18 @@ export class AuthService {
     if (token) await this.sessions.delete(hashToken(token));
   }
 
-  /** The user a session token belongs to, or null if it's unknown or expired. */
-  async authenticate(token: string): Promise<User | null> {
+  /** The user a session token belongs to (with their current role), or null if it's unknown or expired. */
+  async authenticate(token: string): Promise<SessionUser | null> {
     const userId = await this.sessions.findUserId(hashToken(token), new Date());
-    return userId === null ? null : this.users.getById(userId);
+    return userId === null ? null : this.users.getSessionUser(userId);
   }
 
-  private async startSession(user: User): Promise<Session> {
+  /** Ends every session of a user (e.g. after an admin set a new password). */
+  async revokeSessions(userId: number): Promise<void> {
+    await this.sessions.deleteForUser(userId);
+  }
+
+  private async startSession(user: SessionUser): Promise<Session> {
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     await this.sessions.create(hashToken(token), user.id, expiresAt);

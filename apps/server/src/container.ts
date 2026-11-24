@@ -1,4 +1,5 @@
 import { db } from "./db/index.js";
+import { AdminService } from "./modules/admin/index.js";
 import { AuthService, DrizzleSessionsRepository } from "./modules/auth/index.js";
 import { BlocksService, DrizzleBlocksRepository } from "./modules/blocks/index.js";
 import {
@@ -52,6 +53,7 @@ export function createContainer() {
 
   const users = new UsersService(new DrizzleUsersRepository(db), publisher);
   const auth = new AuthService(new DrizzleSessionsRepository(db), users);
+  const admin = new AdminService(users, auth);
   const blocks = new BlocksService(new DrizzleBlocksRepository(db), users, publisher);
 
   const roomsRepo = new DrizzleRoomsRepository(db);
@@ -76,6 +78,7 @@ export function createContainer() {
   return {
     users,
     auth,
+    admin,
     blocks,
     rooms,
     invites,

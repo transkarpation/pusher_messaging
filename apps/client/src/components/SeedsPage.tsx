@@ -97,6 +97,7 @@ export function SeedsPage() {
                 <Avatar user={{ ...a, avatarUrl: null }} size={40} />
                 <div className="seed-names">
                   <strong>{displayName(a)}</strong>
+                  {a.role !== "user" && <span className={`role-badge role-${a.role}`}>{a.role}</span>}
                   <span className="muted small">{a.note}</span>
                 </div>
               </div>

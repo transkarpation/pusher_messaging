@@ -13,7 +13,12 @@ import {
   createPollSchema,
   createRoomSchema,
   updateRoomSchema,
+  ROLES,
   SYSTEM_MESSAGE_KINDS,
+  createAdminUserSchema,
+  ADMIN_DEFAULT_PAGE_SIZE,
+  ADMIN_USER_SORT_FIELDS,
+  updateAdminUserSchema,
   authRequestSchema,
   inviteSchema,
   pollCommentSchema,
@@ -71,6 +76,7 @@ const roomId = idParam("roomId", "Room id");
 const tags = {
   auth: "Auth & profile",
   users: "Users",
+  admin: "Administration",
   rooms: "Rooms",
   messages: "Messages",
   polls: "Polls",
@@ -91,9 +97,28 @@ const schemas: Record<string, Schema> = {
       description: "Uploaded avatar (`/api/users/{id}/avatar?v=…`, changes with every upload), or null for the default one",
     },
   }),
-  UserResponse: object({ user: ref("User") }),
+  Role: {
+    type: "string",
+    enum: [...ROLES],
+    description: "Lowest first. A superadmin manages admins and users, an admin manages users.",
+  },
+  SessionUser: {
+    allOf: [ref("User"), object({ role: ref("Role") })],
+    description: "The signed-in user: the profile plus the role (other people's roles aren't shown)",
+  },
+  UserResponse: object({ user: ref("SessionUser") }),
+  AdminUser: {
+    allOf: [
+      ref("User"),
+      object({
+        role: ref("Role"),
+        createdAt: isoDate(),
+        createdBy: { ...nullable(ref("User")), description: "Who created it on the administration page; null for sign-ups" },
+      }),
+    ],
+  },
   TokenAuthResponse: object({
-    user: ref("User"),
+    user: ref("SessionUser"),
     token: { type: "string", description: "Send as `Authorization: Bearer <token>`" },
     expiresAt: isoDate("Sign in again after this"),
   }),
@@ -225,6 +250,7 @@ const schemas: Record<string, Schema> = {
     username: { type: "string" },
     name: nullable({ type: "string" }),
     password: { type: "string" },
+    role: ref("Role"),
     rooms: { ...arrayOf({ type: "string" }), description: "Rooms the account is a member of" },
     note: { type: "string" },
   }),
@@ -246,7 +272,7 @@ const paths: Record<string, Record<string, Schema>> = {
       tags: [tags.auth],
       summary: "Current user",
       security: [],
-      responses: { 200: json(object({ user: nullable(ref("User")) }), "`user` is null when not signed in") },
+      responses: { 200: json(object({ user: nullable(ref("SessionUser")) }), "`user` is null when not signed in") },
     },
     patch: {
       tags: [tags.auth],
@@ -352,6 +378,69 @@ const paths: Record<string, Record<string, Schema>> = {
         },
         ...unauthorized,
         404: error("The user has no avatar"),
+      },
+    },
+  },
+
+  // ---- administration ------------------------------------------------------
+  "/admin/users": {
+    get: {
+      tags: [tags.admin],
+      summary: "Accounts you manage",
+      description:
+        "A page of the accounts whose role is below yours (superadmin: admins and users; admin: users). " +
+        "Ties are broken by username; accounts without a name come last when sorting by name.",
+      parameters: [
+        { name: "q", in: "query", description: "Username or name contains (empty: anyone)", schema: { type: "string", maxLength: 64 } },
+        { name: "page", in: "query", description: "1-based", schema: { type: "integer", minimum: 1, default: 1 } },
+        { name: "pageSize", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: ADMIN_DEFAULT_PAGE_SIZE } },
+        { name: "sort", in: "query", description: "`role` sorts by rank", schema: { type: "string", enum: [...ADMIN_USER_SORT_FIELDS], default: "username" } },
+        { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "asc" } },
+      ],
+      responses: {
+        200: json(
+          object({
+            users: arrayOf(ref("AdminUser")),
+            total: { type: "integer", description: "Matching accounts on all pages" },
+            page: { type: "integer" },
+            pageSize: { type: "integer" },
+          }),
+          "One page of accounts",
+        ),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Not an admin or superadmin"),
+      },
+    },
+    post: {
+      tags: [tags.admin],
+      summary: "Create an account",
+      description: "`role` must be below yours. The username is stored lowercase.",
+      requestBody: jsonBody(fromZod(createAdminUserSchema)),
+      responses: {
+        201: json(ref("AdminUser"), "The new account"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Not an admin, or the role isn't below yours"),
+        409: error("Username is already taken"),
+      },
+    },
+  },
+  "/admin/users/{id}": {
+    patch: {
+      tags: [tags.admin],
+      summary: "Edit an account",
+      description:
+        "Name (`null` or \"\" clears it), role (below yours) and password. A new password ends all the account's sessions. " +
+        "A name change broadcasts `user:updated`.",
+      parameters: [idParam("id", "User id")],
+      requestBody: jsonBody(fromZod(updateAdminUserSchema)),
+      responses: {
+        200: json(ref("AdminUser"), "The updated account"),
+        ...badRequest,
+        ...unauthorized,
+        403: error("Not an admin, or the role isn't below yours"),
+        404: error("No such account, or not one you manage"),
       },
     },
   },

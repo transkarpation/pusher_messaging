@@ -12,16 +12,16 @@ export function profileRoutes(users: UsersService, requireAuth: RequireAuth) {
 
   router.patch("/", async (req, res) => {
     const input = parse(updateProfileSchema, req.body);
-    res.json({ user: await users.updateName(req.user!.id, input.name) });
+    res.json({ user: { ...(await users.updateName(req.user!.id, input.name)), role: req.user!.role } });
   });
 
   /** The image is the raw body (PNG, JPEG or WebP). */
   router.put("/avatar", express.raw({ type: [...AVATAR_CONTENT_TYPES], limit: AVATAR_MAX_BYTES }), async (req, res) => {
-    res.json({ user: await users.setAvatar(req.user!.id, req.body) });
+    res.json({ user: { ...(await users.setAvatar(req.user!.id, req.body)), role: req.user!.role } });
   });
 
   router.delete("/avatar", async (req, res) => {
-    res.json({ user: await users.removeAvatar(req.user!.id) });
+    res.json({ user: { ...(await users.removeAvatar(req.user!.id)), role: req.user!.role } });
   });
 
   return router;

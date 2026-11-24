@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --env-file=.env scripts/seed.ts",
+    "db:set-role": "tsx --env-file=.env scripts/set-role.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

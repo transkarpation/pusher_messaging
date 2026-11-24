@@ -1,23 +1,27 @@
 import { useEffect, useState } from "react";
-import type { User } from "@pm/shared";
+import { isAdminRole, type SessionUser } from "@pm/shared";
 import { useReceiptsReporter } from "../hooks/useReceiptsReporter";
 import { useRealtime } from "../hooks/useRealtime";
-import { PROFILE_PATH, usePath } from "../lib/router";
+import { ADMIN_PATH, PROFILE_PATH, usePath } from "../lib/router";
 import { useBlocks } from "../store/blocks";
 import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
 import { useRooms } from "../store/rooms";
+import { AdminPage } from "./AdminPage";
 import { CreateRoomModal } from "./CreateRoomModal";
 import { ProfilePage } from "./ProfilePage";
 import { RoomView } from "./RoomView";
 import { Sidebar } from "./Sidebar";
 
-export function ChatApp({ user }: { user: User }) {
+export function ChatApp({ user }: { user: SessionUser }) {
   const room = useRooms((s) => (s.activeRoomId ? s.rooms[s.activeRoomId] : undefined));
   const loaded = useRooms((s) => s.loaded);
   const error = useRooms((s) => s.error);
   const [creating, setCreating] = useState(false);
-  const onProfile = usePath() === PROFILE_PATH;
+  const path = usePath();
+  const onProfile = path === PROFILE_PATH;
+  // Anyone else following a link to /admin just sees the chat.
+  const onAdmin = path === ADMIN_PATH && isAdminRole(user.role);
 
   useRealtime(user);
   useReceiptsReporter();
@@ -38,6 +42,15 @@ export function ChatApp({ user }: { user: User }) {
       useBlocks.getState().reset();
     };
   }, []);
+
+  // Administration takes the whole window, without the room list (it has its own way back).
+  if (onAdmin) {
+    return (
+      <div className="app app-full">
+        <AdminPage me={user} />
+      </div>
+    );
+  }
 
   return (
     <div className={`app ${room || onProfile ? "has-room" : ""}`}>

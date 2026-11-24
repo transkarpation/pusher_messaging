@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 
 /** Client-side pages; anything else shows the chat. */
 export const PROFILE_PATH = "/profile";
+/** User administration; only for admins and superadmins. */
+export const ADMIN_PATH = "/admin";
 /** Demo accounts from the seed; reachable without signing in. */
 export const SEEDS_PATH = "/seeds";
 

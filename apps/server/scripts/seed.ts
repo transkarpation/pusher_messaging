@@ -12,7 +12,7 @@ import { deflateSync } from "node:zlib";
 import { inArray } from "drizzle-orm";
 import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
-import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, type DemoUsername as Username } from "../src/modules/seeds/demo.js";
+import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, demoRoleOf, type DemoUsername as Username } from "../src/modules/seeds/demo.js";
 import { hashPassword } from "../src/modules/auth/password.js";
 
 /** A scripted line: who, what, and how many minutes after the previous line. */
@@ -415,6 +415,7 @@ async function seed() {
           username: u.username,
           name: u.name,
           passwordHash,
+          role: demoRoleOf(u),
           avatarUpdatedAt: "avatar" in u ? new Date() : null,
         })),
       )
@@ -475,6 +476,7 @@ async function main() {
     USERS.map((u) => ({
       username: u.username,
       password: PASSWORD,
+      role: demoRoleOf(u),
       name: u.name ?? "(not set)",
       rooms: [GENERAL, ...ROOMS]
         .filter((r) => finalMembers(r).includes(u.username))

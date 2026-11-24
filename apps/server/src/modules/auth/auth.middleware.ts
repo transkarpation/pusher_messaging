@@ -1,13 +1,13 @@
 import type { IncomingMessage } from "node:http";
 import type { CookieOptions, Request, RequestHandler } from "express";
-import type { User } from "@pm/shared";
-import { unauthorized } from "../../shared/errors.js";
+import { isAdminRole, type SessionUser } from "@pm/shared";
+import { forbidden, unauthorized } from "../../shared/errors.js";
 import type { AuthService } from "./auth.service.js";
 
 declare global {
   namespace Express {
     interface Request {
-      user?: User;
+      user?: SessionUser;
     }
   }
 }
@@ -63,7 +63,7 @@ export const loadUser =
  * from the session cookie (browsers). Browsers send cookies with WebSocket handshakes
  * started by any page, so a cookie only counts when `Origin` is this server's own host.
  */
-export async function authenticateUpgrade(auth: AuthService, req: IncomingMessage): Promise<User | null> {
+export async function authenticateUpgrade(auth: AuthService, req: IncomingMessage): Promise<SessionUser | null> {
   const bearer = bearerTokenOf(req.headers.authorization);
   if (bearer) return auth.authenticate(bearer);
   const cookie = sessionCookieOf(req.headers.cookie);
@@ -82,5 +82,12 @@ function isSameOrigin(req: IncomingMessage): boolean {
 
 export const requireAuth: RequireAuth = (req, _res, next) => {
   if (!req.user) throw unauthorized();
+  next();
+};
+
+/** Lets through only admins and superadmins (anyone who manages some role). */
+export const requireAdmin: RequestHandler = (req, _res, next) => {
+  if (!req.user) throw unauthorized();
+  if (!isAdminRole(req.user.role)) throw forbidden("Only administrators can do this");
   next();
 };

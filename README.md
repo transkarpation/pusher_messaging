@@ -1,6 +1,6 @@
 # pusher-messaging
 
-Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars and blocking users. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
+Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars, blocking users, and roles (user, admin, superadmin) with a user administration page. Real-time updates go through the server's own WebSocket endpoint, [Pusher Channels](https://pusher.com/channels) or a Phoenix server, switched with one environment variable (see [Realtime transport](#realtime-transport)).
 
 ## Stack
 
@@ -73,12 +73,34 @@ pnpm db:seed
 
 Creates 8 demo users (`olena`, `andriy`, `iryna`, `maksym`, `sofia`, `taras`, `dmytro`, `kateryna`, all with the password `password123`), 4 rooms with a few days of conversation, and prints the logins. The data also covers unread messages, a pending invite, a block, edited and deleted messages, join/leave lines and a room with more than one page of messages.
 
+`olena` is a superadmin and `andriy` an admin, so the [administration page](#roles-and-administration) can be tried right away; the rest are plain users.
+
 The same accounts, with their passwords, rooms and a "Log in as" button, are on the **http://localhost:5173/seeds** page. It needs no login, and the sign-in form links to it. The page lists only demo accounts that still have the demo password. `GET /api/seeds` behind it isn't served when `NODE_ENV=production`.
 
 - `pnpm db:seed --reset` deletes the demo data and creates it again, with timestamps relative to now.
 - `pnpm db:seed --clean` only deletes it.
 
 Demo users are recognized by username. Deleting them also deletes the rooms they created, and their messages in other rooms.
+
+## Roles and administration
+
+Every account has a role: `user`, `admin` or `superadmin`. Each role manages only the roles below it:
+
+| Role | Sees, creates and edits |
+|---|---|
+| `superadmin` | admins and users |
+| `admin` | users |
+| `user` | nobody |
+
+Admins and superadmins get an **Admin** link in the sidebar of the web client. It opens **/admin**: a searchable table of the accounts they manage, sortable by username, name, role or creation date and split into pages (10–100 per page), a form to create one (username, password, optional name, role) and one to edit one (name, role, new password). A new password signs the account out on all devices. Nobody can edit their own account there, or give a role equal to or above their own. The server checks the same rules on `/api/admin/users` and reads the role on every request, so a demoted admin loses access at once.
+
+Sign-ups are plain users. To make the first superadmin, give an existing account the role from the command line:
+
+```sh
+pnpm db:set-role <username> superadmin
+```
+
+Only the signed-in user's own role is sent to clients (`SessionUser` from `/api/auth/*`). Other people's `User` objects don't include roles.
 
 ## Mobile app
 
@@ -111,6 +133,7 @@ How it differs from the web client:
 | `pnpm db:generate` | generates a migration after changing `apps/server/src/db/schema.ts` |
 | `pnpm db:migrate` | applies migrations |
 | `pnpm db:seed` | creates demo users and conversations (see [Demo data](#demo-data)) |
+| `pnpm db:set-role <username> <role>` | gives an account the `user`, `admin` or `superadmin` role (see [Roles and administration](#roles-and-administration)) |
 | `pnpm db:studio` | opens Drizzle Studio to browse the database |
 | `pnpm realtime:phoenix` | builds and runs the Phoenix realtime server in Docker (for `REALTIME_DRIVER=phoenix`) |
 
@@ -124,8 +147,9 @@ How it differs from the web client:
 
 | Module | Owns |
 |---|---|
-| `users` | accounts, profiles, avatars |
-| `auth` | sessions, sign up / sign in, `requireAuth` |
+| `users` | accounts, roles, profiles, avatars |
+| `auth` | sessions, sign up / sign in, `requireAuth`, `requireAdmin` |
+| `admin` | who may see, create and edit which accounts (`/api/admin`) |
 | `blocks` | the block list |
 | `chat` | rooms, members, invitations, messages, receipts, typing |
 | `realtime` | publishing events (`RealtimePublisher`) through `WsGateway`, `PusherGateway` or `PhoenixGateway`, channel authorization, `/api/realtime` routes |

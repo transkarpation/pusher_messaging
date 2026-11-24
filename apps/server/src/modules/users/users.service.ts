@@ -1,10 +1,27 @@
-import { ONLINE_CHANNEL, USER_UPDATED_EVENT, type User } from "@pm/shared";
+import { ONLINE_CHANNEL, USER_UPDATED_EVENT, type AdminUser, type SessionUser, type User } from "@pm/shared";
 import { badRequest, notFound } from "../../shared/errors.js";
 import { sniffImageType } from "../../shared/images.js";
 import type { RealtimePublisher } from "../realtime/index.js";
-import type { Avatar, UserCredentials, UsersRepository } from "./users.repository.js";
+import type {
+  AccountsQuery,
+  AdminUserChanges,
+  AdminUserRow,
+  Avatar,
+  NewUser,
+  UserCredentials,
+  UsersRepository,
+} from "./users.repository.js";
 
 const SEARCH_LIMIT = 20;
+
+const sessionUserOf = ({ id, username, name, avatarUrl, role }: SessionUser): SessionUser => ({
+  id,
+  username,
+  name,
+  avatarUrl,
+  role,
+});
+const publicUserOf = ({ id, username, name, avatarUrl }: User): User => ({ id, username, name, avatarUrl });
 
 /** The users module's facade: accounts, profiles and avatars. */
 export class UsersService {
@@ -13,9 +30,48 @@ export class UsersService {
     private readonly realtime: RealtimePublisher,
   ) {}
 
-  /** Null if the username is taken. */
-  create(username: string, passwordHash: string): Promise<User | null> {
-    return this.users.create(username, passwordHash);
+  /** A sign-up: a plain user. Null if the username is taken. */
+  async create(username: string, passwordHash: string): Promise<SessionUser | null> {
+    const user = await this.users.create({ username, passwordHash });
+    return user && sessionUserOf(user);
+  }
+
+  /** The user of a session, with their role. */
+  getSessionUser(id: number): Promise<SessionUser | null> {
+    return this.users.findSessionUser(id);
+  }
+
+  // ---- Administration (rules about who may do what are in the admin module) ----
+
+  /** An account created by an admin. Null if the username is taken. */
+  async createAccount(input: NewUser): Promise<AdminUser | null> {
+    const user = await this.users.create(input);
+    return user && (await this.toAdminUsers([user]))[0]!;
+  }
+
+  async listAccounts(q: AccountsQuery): Promise<{ users: AdminUser[]; total: number }> {
+    const { rows, total } = await this.users.listAccounts(q);
+    return { users: await this.toAdminUsers(rows), total };
+  }
+
+  async getAccount(id: number): Promise<AdminUser | null> {
+    const user = await this.users.findAdminUser(id);
+    return user && (await this.toAdminUsers([user]))[0]!;
+  }
+
+  async updateAccount(id: number, changes: AdminUserChanges): Promise<AdminUser> {
+    const user = await this.users.updateAdmin(id, changes);
+    if (changes.name !== undefined) this.announce(publicUserOf(user));
+    return (await this.toAdminUsers([user]))[0]!;
+  }
+
+  private async toAdminUsers(rows: AdminUserRow[]): Promise<AdminUser[]> {
+    const creators = await this.getByIds(rows.flatMap((r) => (r.createdById === null ? [] : [r.createdById])));
+    return rows.map(({ createdAt, createdById, ...user }) => ({
+      ...sessionUserOf(user),
+      createdAt: createdAt.toISOString(),
+      createdBy: createdById === null ? null : (creators.get(createdById) ?? null),
+    }));
   }
 
   async getById(id: number): Promise<User | null> {

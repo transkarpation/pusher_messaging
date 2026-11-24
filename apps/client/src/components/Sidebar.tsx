@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { isSystemMessage, type User } from "@pm/shared";
-import { PROFILE_PATH, navigate } from "../lib/router";
+import { LogOut, ShieldUser } from "lucide-react";
+import { isAdminRole, isSystemMessage, type SessionUser } from "@pm/shared";
+import { ADMIN_PATH, PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { sortRooms, useRooms } from "../store/rooms";
@@ -9,7 +10,7 @@ import { CreateRoomModal } from "./CreateRoomModal";
 import { Invitations } from "./Invitations";
 import { ThemeToggle } from "./ThemeToggle";
 
-export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
+export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean }) {
   const logout = useAuth((s) => s.logout);
   const roomsById = useRooms((s) => s.rooms);
   const activeRoomId = useRooms((s) => s.activeRoomId);
@@ -37,8 +38,22 @@ export function Sidebar({ me, onProfile }: { me: User; onProfile: boolean }) {
         </button>
         <div className="sidebar-header-actions">
           <ThemeToggle />
-          <button type="button" className="link" onClick={() => void logout()}>
-            Log out
+          {isAdminRole(me.role) && (
+            <a
+              href={ADMIN_PATH}
+              className="icon-link"
+              title="Administration"
+              aria-label="Administration"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(ADMIN_PATH);
+              }}
+            >
+              <ShieldUser size={18} aria-hidden="true" />
+            </a>
+          )}
+          <button type="button" className="ghost icon" title="Log out" aria-label="Log out" onClick={() => void logout()}>
+            <LogOut size={18} aria-hidden="true" />
           </button>
         </div>
       </header>

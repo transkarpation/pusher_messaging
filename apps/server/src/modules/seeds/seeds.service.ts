@@ -38,6 +38,7 @@ export class SeedsService {
           username: user.username,
           name: user.name,
           password: DEMO_PASSWORD,
+          role: user.role,
           rooms: roomNames.get(user.id) ?? [],
           note: spec.note,
         },

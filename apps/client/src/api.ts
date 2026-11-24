@@ -4,7 +4,14 @@ import {
   FILE_NAME_HEADER,
   FILE_TYPE_HEADER,
   SOCKET_ID_HEADER,
+  type AdminUser,
+  type AdminUsersPage,
+  type AdminUsersQuery,
   type Attachment,
+  type CreateAdminUserInput,
+  type MeResponse,
+  type SessionUser,
+  type UpdateAdminUserInput,
   type BlockInput,
   type BlocksEvent,
   type CreateMessageInput,
@@ -69,13 +76,23 @@ async function request<T>(path: string, method = "GET", body?: unknown, extraHea
 const room = (id: number) => `/rooms/${id}`;
 
 export const api = {
-  me: () => request<{ user: User | null }>("/auth/me"),
-  login: (c: Credentials) => request<{ user: User }>("/auth/login", "POST", c),
-  register: (c: Credentials) => request<{ user: User }>("/auth/register", "POST", c),
+  me: () => request<MeResponse>("/auth/me"),
+  login: (c: Credentials) => request<{ user: SessionUser }>("/auth/login", "POST", c),
+  register: (c: Credentials) => request<{ user: SessionUser }>("/auth/register", "POST", c),
   logout: () => request<void>("/auth/logout", "POST"),
-  updateProfile: (p: UpdateProfileInput) => request<{ user: User }>("/auth/me", "PATCH", p),
-  uploadAvatar: (image: Blob) => request<{ user: User }>("/auth/me/avatar", "PUT", image),
-  removeAvatar: () => request<{ user: User }>("/auth/me/avatar", "DELETE"),
+  updateProfile: (p: UpdateProfileInput) => request<{ user: SessionUser }>("/auth/me", "PATCH", p),
+  uploadAvatar: (image: Blob) => request<{ user: SessionUser }>("/auth/me/avatar", "PUT", image),
+  removeAvatar: () => request<{ user: SessionUser }>("/auth/me/avatar", "DELETE"),
+
+  /** Administration (admins and superadmins): accounts with a role below the caller's. */
+  adminListUsers: (query: AdminUsersQuery) =>
+    request<AdminUsersPage>(
+      `/admin/users?${new URLSearchParams(
+        Object.entries(query).flatMap(([k, v]) => (v === undefined ? [] : [[k, String(v)]])),
+      )}`,
+    ),
+  adminCreateUser: (input: CreateAdminUserInput) => request<AdminUser>("/admin/users", "POST", input),
+  adminUpdateUser: (id: number, input: UpdateAdminUserInput) => request<AdminUser>(`/admin/users/${id}`, "PATCH", input),
 
   searchUsers: (q: string) => request<User[]>(`/users?q=${encodeURIComponent(q)}`),
 

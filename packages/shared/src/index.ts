@@ -26,7 +26,7 @@ export type AuthRequest = z.input<typeof authRequestSchema>;
 
 /** Response of login/register with `session: "token"`. */
 export interface TokenAuthResponse {
-  user: User;
+  user: SessionUser;
   token: string;
   /** ISO date; sign in again after it. */
   expiresAt: string;
@@ -135,6 +135,92 @@ export interface User {
   /** Uploaded avatar (versioned, so it changes with every upload), or null for the default one. */
   avatarUrl: string | null;
 }
+
+// ---- Roles & administration -------------------------------------------------
+
+/**
+ * Account roles, lowest first. Each role manages only the roles below it: a superadmin
+ * creates and edits admins and users, an admin creates and edits users.
+ */
+export const ROLES = ["user", "admin", "superadmin"] as const;
+export type Role = (typeof ROLES)[number];
+
+const roleRank = (role: Role) => ROLES.indexOf(role);
+
+/** Roles that `role` may assign, view and edit (everything strictly below it). */
+export const manageableRoles = (role: Role): Role[] => ROLES.slice(0, roleRank(role));
+
+/** Whether `actor` may view, edit or create an account with role `target`. */
+export const canManageRole = (actor: Role, target: Role) => roleRank(target) < roleRank(actor);
+
+/** Whether `role` opens the administration page. */
+export const isAdminRole = (role: Role) => manageableRoles(role).length > 0;
+
+/**
+ * The signed-in user as the auth endpoints return it: the public profile plus the role.
+ * Roles aren't part of `User`, so other people's roles never reach clients.
+ */
+export interface SessionUser extends User {
+  role: Role;
+}
+
+/** Response of GET /auth/me. */
+export interface MeResponse {
+  user: SessionUser | null;
+}
+
+/** An account as the administration page lists it. */
+export interface AdminUser extends User {
+  role: Role;
+  createdAt: string;
+  /** Who created the account from the administration page; null for sign-ups (or a deleted creator). */
+  createdBy: User | null;
+}
+
+const roleSchema = z.enum(ROLES);
+
+/** Columns the administration list can be sorted by. `role` sorts by rank (user < admin < superadmin). */
+export const ADMIN_USER_SORT_FIELDS = ["username", "name", "role", "createdAt"] as const;
+export type AdminUserSortField = (typeof ADMIN_USER_SORT_FIELDS)[number];
+export const ADMIN_PAGE_SIZES = [10, 25, 50, 100] as const;
+export const ADMIN_DEFAULT_PAGE_SIZE = 25;
+
+/** Query of GET /admin/users. Ties are broken by username, so pages don't overlap. */
+export const adminUsersQuerySchema = z.object({
+  /** Username or name contains this (case-insensitive); empty: anyone. */
+  q: z.string().trim().max(64, "Search text is too long").default(""),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(ADMIN_DEFAULT_PAGE_SIZE),
+  sort: z.enum(ADMIN_USER_SORT_FIELDS).default("username"),
+  order: z.enum(["asc", "desc"]).default("asc"),
+});
+export type AdminUsersQuery = z.input<typeof adminUsersQuerySchema>;
+
+/** Response of GET /admin/users: one page of accounts. */
+export interface AdminUsersPage {
+  users: AdminUser[];
+  /** Accounts matching the search, on all pages. */
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** Body of POST /admin/users. The role must be below the caller's. */
+export const createAdminUserSchema = credentialsSchema.extend({
+  name: updateProfileSchema.shape.name.optional(),
+  role: roleSchema.default("user"),
+});
+export type CreateAdminUserInput = z.input<typeof createAdminUserSchema>;
+
+/** Body of PATCH /admin/users/:id; fields left out stay as they are. A new password signs the account out everywhere. */
+export const updateAdminUserSchema = z
+  .object({
+    name: z.string().trim().max(64, "Name is too long").nullable().optional(),
+    role: roleSchema.optional(),
+    password: credentialsSchema.shape.password.optional(),
+  })
+  .refine((v) => v.name !== undefined || v.role !== undefined || v.password !== undefined, "Nothing to change");
+export type UpdateAdminUserInput = z.input<typeof updateAdminUserSchema>;
 
 /**
  * "text": a regular message written by `author`.
@@ -434,6 +520,7 @@ export interface SeedAccount {
   username: string;
   name: string | null;
   password: string;
+  role: Role;
   /** Rooms the account is a member of right now. */
   rooms: string[];
   /** What's worth looking at when logged in as this account. */

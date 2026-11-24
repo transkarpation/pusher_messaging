@@ -12,6 +12,7 @@
   "dependencies": {
     "@pm/realtime-client": "workspace:*",
     "@pm/shared": "workspace:*",
+    "lucide-react": "^1.78.0",
     "phoenix": "^1.8.17",
     "pusher-js": "^8.6.0",
     "react": "^19.3.1",

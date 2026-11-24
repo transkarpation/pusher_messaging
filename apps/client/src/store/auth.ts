@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import type { Credentials, User } from "@pm/shared";
+import type { Credentials, SessionUser, User } from "@pm/shared";
 import { api } from "../api";
 import { disconnectRealtime } from "../realtime";
 
 type Status = "idle" | "loading" | "ready";
 
 interface AuthState {
-  user: User | null;
+  user: SessionUser | null;
   status: Status;
   init: () => Promise<void>;
   login: (c: Credentials) => Promise<void>;
@@ -56,7 +56,9 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ user });
   },
   applyUpdate: (user) => {
-    if (get().user?.id === user.id) set({ user });
+    const me = get().user;
+    // Profile broadcasts carry the public profile only; keep the role.
+    if (me?.id === user.id) set({ user: { ...me, ...user } });
   },
   logout: async () => {
     await api.logout();
