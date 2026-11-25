@@ -28,6 +28,11 @@ import { useStyles, type Colors } from "../lib/theme";
 /** Waits this long (ms) after a change before reloading the list, so a burst of messages reloads it once. */
 const RELOAD_DELAY = 300;
 
+type RoomFilter = "all" | "unread";
+
+/** Most recently active first, the order the server pages rooms in. */
+const byActivity = (a: Room, b: Room) => b.activity - a.activity || b.id - a.id;
+
 /** Tells the server the latest message of each room reached this device (shown to its author as ✓✓). */
 function reportDelivered(rooms: Room[]) {
   for (const room of rooms) {
@@ -43,6 +48,13 @@ export default function RoomsScreen() {
   const me = useSession((s) => s.user)!;
   const signOut = useSession((s) => s.signOut);
   const [rooms, setRooms] = useState<Room[] | null>(null);
+  const [filter, setFilter] = useState<RoomFilter>("all");
+  /** Rooms with unread messages, all of them (not only the loaded ones), for the "Unread" badge. */
+  const [unreadRooms, setUnreadRooms] = useState(0);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const roomsRef = useRef(rooms);
+  roomsRef.current = rooms;
   /** Continues the list past the loaded rooms; null once all are loaded. */
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -66,15 +78,25 @@ export default function RoomsScreen() {
       },
     });
 
-  /** Reloads the rooms from the top: the first page, or as many as are loaded (up to ROOMS_MAX_PAGE_SIZE). */
+  /**
+   * Reloads the rooms from the top: the first page, or as many as are loaded (up to ROOMS_MAX_PAGE_SIZE).
+   * Under "Unread", rooms already shown stay when they've been read (as in Telegram), until the filter changes.
+   */
   const load = useCallback(async () => {
     const gen = ++generation.current;
+    const unread = filterRef.current === "unread";
     try {
       await api.receiptsSettled(); // so a room that was just read comes back with no unread count
       const limit = Math.min(Math.max(loadedCount.current, ROOMS_PAGE_SIZE), ROOMS_MAX_PAGE_SIZE);
-      const page = await api.getRooms({ limit });
-      if (gen !== generation.current) return; // a newer reload is under way
-      setRooms(page.rooms);
+      const [page, unreadIds] = await Promise.all([
+        api.getRooms({ limit, unread }),
+        api.getUnreadRoomIds().catch(() => null), // only for the badge
+      ]);
+      if (gen !== generation.current) return; // a newer reload (or a filter change) is under way
+      if (unreadIds) setUnreadRooms(unreadIds.roomIds.length);
+      const fetched = new Set(page.rooms.map((r) => r.id));
+      const kept = unread ? (roomsRef.current ?? []).filter((r) => !fetched.has(r.id)).map((r) => ({ ...r, unreadCount: 0 })) : [];
+      setRooms(kept.length > 0 ? [...page.rooms, ...kept].sort(byActivity) : page.rooms);
       setNextCursor(page.nextCursor);
       reportDelivered(page.rooms);
       setError(null);
@@ -89,7 +111,7 @@ export default function RoomsScreen() {
     const gen = generation.current;
     setLoadingMore(true);
     try {
-      const page = await api.getRooms({ before: nextCursor });
+      const page = await api.getRooms({ before: nextCursor, unread: filterRef.current === "unread" });
       if (gen !== generation.current) return; // reloaded meanwhile; that reload has the list
       setRooms((list) => {
         const known = new Set((list ?? []).map((r) => r.id));
@@ -103,6 +125,18 @@ export default function RoomsScreen() {
       setLoadingMore(false);
     }
   }, [nextCursor, loadingMore]);
+
+  /** Shows the other filter's list from its first page. */
+  const chooseFilter = (next: RoomFilter) => {
+    if (next === filter) return;
+    filterRef.current = next;
+    setFilter(next);
+    setRooms(null);
+    setNextCursor(null);
+    loadedCount.current = 0;
+    roomsRef.current = null;
+    void load();
+  };
 
   const focused = useRef(false);
   const reloadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -180,6 +214,28 @@ export default function RoomsScreen() {
         }}
       />
       <View style={styles.screen}>
+        <View style={styles.filters} accessibilityRole="tablist">
+          {(["all", "unread"] as const).map((f) => (
+            <Pressable
+              key={f}
+              style={[styles.filter, filter === f && styles.filterActive]}
+              onPress={() => chooseFilter(f)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: filter === f }}
+            >
+              <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+                {f === "all" ? "All" : "Unread"}
+              </Text>
+              {f === "unread" && unreadRooms > 0 && (
+                <View style={[styles.filterBadge, filter === f && styles.filterBadgeActive]}>
+                  <Text style={[styles.filterBadgeText, filter === f && styles.filterBadgeTextActive]}>
+                    {unreadRooms > 99 ? "99+" : unreadRooms}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </View>
         <FlatList
           data={rooms ?? []}
           keyExtractor={(r) => String(r.id)}
@@ -194,7 +250,13 @@ export default function RoomsScreen() {
             />
           }
           ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
-          ListEmptyComponent={rooms ? <Text style={styles.empty}>No rooms yet. Tap + to create one.</Text> : undefined}
+          ListEmptyComponent={
+            rooms ? (
+              <Text style={styles.empty}>
+                {filter === "unread" ? "No unread messages." : "No rooms yet. Tap + to create one."}
+              </Text>
+            ) : undefined
+          }
           onEndReached={() => void loadMore()}
           onEndReachedThreshold={0.5}
           ListFooterComponent={loadingMore ? <Text style={styles.empty}>Loading more rooms…</Text> : undefined}
@@ -247,6 +309,24 @@ export default function RoomsScreen() {
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
   screen: { flex: 1 },
+  filters: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  filter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterBadge: { minWidth: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.accent },
+  filterBadgeActive: { backgroundColor: colors.onAccent },
+  filterBadgeText: { color: colors.onAccent, fontSize: 11, fontWeight: "600", lineHeight: 18, textAlign: "center" },
+  filterBadgeTextActive: { color: colors.accent },
+  filterActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  filterText: { color: colors.muted, fontWeight: "600" },
+  filterTextActive: { color: colors.onAccent },
   /** Room for the last row to scroll out from under the floating button. */
   listContent: { paddingBottom: 96 },
   fab: {

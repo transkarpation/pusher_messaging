@@ -42,9 +42,17 @@ export class RoomsService {
     return this.rooms.membership(roomId, userId);
   }
 
-  /** A page of the user's rooms, most recently active first. */
-  listFor(userId: number, query: { limit: number; before?: { activity: number; id: number } }): Promise<RoomsPage> {
-    return this.views.roomsPage(userId, query.before, query.limit);
+  /** A page of the user's rooms (with `unread`, only those with unread messages), most recently active first. */
+  listFor(
+    userId: number,
+    query: { limit: number; before?: { activity: number; id: number }; unread: boolean },
+  ): Promise<RoomsPage> {
+    return this.views.roomsPage(userId, query.before, query.limit, query.unread);
+  }
+
+  /** Ids of the user's rooms with unread messages. */
+  unreadRoomIds(userId: number): Promise<number[]> {
+    return this.views.unreadRoomIds(userId);
   }
 
   /** Ids of the rooms the user belongs to. */

@@ -1,9 +1,11 @@
-import { and, asc, count, desc, eq, exists, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, gt, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { AvatarContentType, RoomRole } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
 
-const { rooms, roomMembers, roomAvatars, roomInvites } = schema;
+import { AUTHORED_KINDS } from "./messages.repository.js";
+
+const { rooms, roomMembers, roomAvatars, roomInvites, messages, receipts } = schema;
 
 /** `avatarUrl` carries the time the picture was set, so the response can be cached forever. */
 export const roomAvatarUrl: SQL<string | null> = sql<string | null>`case when ${rooms.avatarUpdatedAt} is null then null
@@ -47,15 +49,19 @@ export interface RoomsRepository {
   roomsOf(userId: number, onlyIds?: number[]): Promise<RoomRow[]>;
   /**
    * Up to `size` of the user's rooms, most recently active first (last activity, then id, both
-   * descending), after `before` if given; and whether more follow.
+   * descending), after `before` if given; and whether more follow. With `unread`, only rooms
+   * with a message the user hasn't read, by the rule of `MessagesRepository.unreadCounts`.
    */
   pageOf(
     userId: number,
     before: { activity: number; id: number } | undefined,
     size: number,
+    unread?: { hiddenAuthorIds: number[] },
   ): Promise<{ rows: RoomRow[]; hasMore: boolean }>;
   /** Ids of the rooms the user belongs to. */
   roomIdsOf(userId: number): Promise<number[]>;
+  /** Ids of the user's rooms with a message they haven't read (the `unread` rule of `pageOf`). */
+  unreadRoomIdsOf(userId: number, hiddenAuthorIds: number[]): Promise<number[]>;
   /** Members of the rooms, in the order they joined. */
   members(roomIds: number[]): Promise<MemberRow[]>;
   memberCounts(roomIds: number[]): Promise<Map<number, number>>;
@@ -105,20 +111,58 @@ export class DrizzleRoomsRepository implements RoomsRepository {
       .where(onlyIds ? inArray(rooms.id, onlyIds) : undefined);
   }
 
-  async pageOf(userId: number, before: { activity: number; id: number } | undefined, size: number) {
+  async pageOf(
+    userId: number,
+    before: { activity: number; id: number } | undefined,
+    size: number,
+    unread?: { hiddenAuthorIds: number[] },
+  ) {
     const rows = await this.db
       .select(roomColumns)
       .from(rooms)
       .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
       .where(
-        before
-          ? sql`(${rooms.lastActivityAt}, ${rooms.id}) < (timestamptz 'epoch' + ${before.activity} * interval '1 millisecond', ${before.id})`
-          : undefined,
+        and(
+          before
+            ? sql`(${rooms.lastActivityAt}, ${rooms.id}) < (timestamptz 'epoch' + ${before.activity} * interval '1 millisecond', ${before.id})`
+            : undefined,
+          unread ? exists(this.unreadMessage(userId, unread.hiddenAuthorIds)) : undefined,
+        ),
       )
       .orderBy(desc(rooms.lastActivityAt), desc(rooms.id))
       // One extra row tells whether there's more beyond this page.
       .limit(size + 1);
     return { rows: rows.slice(0, size), hasMore: rows.length > size };
+  }
+
+  /** A message in the outer query's room that the user hasn't read (see `MessagesRepository.unreadCounts`). */
+  private unreadMessage(userId: number, hiddenAuthorIds: number[]) {
+    const readUpTo = this.db
+      .select({ readUpTo: receipts.readUpTo })
+      .from(receipts)
+      .where(and(eq(receipts.roomId, rooms.id), eq(receipts.userId, userId)));
+    return this.db
+      .select({ one: sql`1` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.roomId, rooms.id),
+          gt(messages.id, sql`coalesce((${readUpTo}), 0)`),
+          ne(messages.userId, userId),
+          hiddenAuthorIds.length > 0 ? notInArray(messages.userId, hiddenAuthorIds) : undefined,
+          inArray(messages.kind, AUTHORED_KINDS),
+          isNull(messages.deletedAt),
+        ),
+      );
+  }
+
+  async unreadRoomIdsOf(userId: number, hiddenAuthorIds: number[]) {
+    const rows = await this.db
+      .select({ id: rooms.id })
+      .from(rooms)
+      .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
+      .where(exists(this.unreadMessage(userId, hiddenAuthorIds)));
+    return rows.map((r) => r.id);
   }
 
   async roomIdsOf(userId: number) {

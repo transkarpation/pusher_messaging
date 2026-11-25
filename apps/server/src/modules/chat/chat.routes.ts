@@ -18,6 +18,7 @@ import {
   typingSchema,
   updateMessageSchema,
   updateReceiptSchema,
+  type UnreadRoomsResponse,
 } from "@pm/shared";
 import { notFound } from "../../shared/errors.js";
 import { actorOf, idParam, parse } from "../../shared/http.js";
@@ -66,6 +67,11 @@ export function roomsRoutes(
   /** A page of the caller's rooms, most recently active first; `before` continues from `nextCursor`. */
   router.get("/", async (req, res) => {
     res.json(await rooms.listFor(req.user!.id, parse(roomsQuerySchema, req.query)));
+  });
+
+  /** Every room of the caller's with unread messages, loaded by the client or not (for the "Unread" count). */
+  router.get("/unread", async (req, res) => {
+    res.json({ roomIds: await rooms.unreadRoomIds(req.user!.id) } satisfies UnreadRoomsResponse);
   });
 
   router.post("/", async (req, res) => {

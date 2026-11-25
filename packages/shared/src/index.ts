@@ -502,9 +502,15 @@ export const roomsCursor = (room: Pick<Room, "id" | "activity">) => `${room.acti
 /**
  * Query of GET /rooms: the user's rooms, most recently active first (`Room.activity`, then id).
  * - `limit`: rooms per page (ROOMS_PAGE_SIZE by default, at most ROOMS_MAX_PAGE_SIZE);
- * - `before`: a `nextCursor` from the previous page, for the rooms after it.
+ * - `before`: a `nextCursor` from the previous page, for the rooms after it;
+ * - `unread=1`: only rooms with unread messages (`unreadCount > 0`), in the same order. Its
+ *   cursors continue only this filtered list.
  */
 export const roomsQuerySchema = z.object({
+  unread: z
+    .enum(["0", "1"])
+    .transform((v) => v === "1")
+    .default(false),
   limit: z.coerce.number().int().min(1).max(ROOMS_MAX_PAGE_SIZE).default(ROOMS_PAGE_SIZE),
   before: z
     .string()
@@ -516,6 +522,14 @@ export const roomsQuerySchema = z.object({
     .optional(),
 });
 export type RoomsQuery = z.input<typeof roomsQuerySchema>;
+
+/**
+ * GET /rooms/unread: every room of the user's with unread messages (the rule of `unreadCount`),
+ * loaded or not, so clients can count them for the "Unread" filter.
+ */
+export interface UnreadRoomsResponse {
+  roomIds: number[];
+}
 
 export interface RoomsPage {
   rooms: Room[];

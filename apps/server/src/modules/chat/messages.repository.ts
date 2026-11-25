@@ -6,7 +6,7 @@ import { executorOf, type DbExecutor, type TxScope } from "../../shared/transact
 const { messages, receipts, rooms } = schema;
 
 /** Kinds someone wrote, as opposed to system lines: they count as unread and can be deleted. */
-const AUTHORED_KINDS: MessageKind[] = ["text", "poll"];
+export const AUTHORED_KINDS: MessageKind[] = ["text", "poll"];
 const SYSTEM_KINDS: MessageKind[] = [...SYSTEM_MESSAGE_KINDS];
 
 /** A message as stored: the author is an id, attached by the service. */
@@ -68,6 +68,7 @@ export interface MessagesRepository {
   latest(roomIds: number[], hiddenAuthorIds: number[]): Promise<MessageRow[]>;
   /**
    * Per room: live text messages and polls by others (not `hiddenAuthorIds`) newer than the user's read watermark.
+   * (`RoomsRepository.pageOf` filters by the same rule.)
    */
   unreadCounts(userId: number, roomIds: number[], hiddenAuthorIds: number[]): Promise<Map<number, number>>;
   roomReceipts(roomId: number): Promise<Receipt[]>;

@@ -4,7 +4,7 @@ import { isAdminRole, isSystemMessage, type SessionUser } from "@pm/shared";
 import { ADMIN_PATH, PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
-import { sortRooms, useRooms } from "../store/rooms";
+import { unreadRoomCount, useRooms, visibleRooms, type RoomFilter } from "../store/rooms";
 import { Avatar, RoomAvatar } from "./Avatar";
 import { CreateRoomModal } from "./CreateRoomModal";
 import { Invitations } from "./Invitations";
@@ -16,13 +16,34 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
   const activeRoomId = useRooms((s) => s.activeRoomId);
   const setActive = useRooms((s) => s.setActive);
   const loaded = useRooms((s) => s.loaded);
-  const hasMore = useRooms((s) => s.nextCursor !== null);
+  const filter = useRooms((s) => s.filter);
+  const list = useRooms((s) => s.lists[s.filter]);
+  const setFilter = useRooms((s) => s.setFilter);
   const loadingMore = useRooms((s) => s.loadingMore);
+  const unreadRooms = useRooms(unreadRoomCount);
+  const hasMore = !list.loaded || list.cursor !== null;
   const [creating, setCreating] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const moreRef = useRef<HTMLLIElement>(null);
+  /**
+   * Rooms shown under "Unread" since it was switched on. They stay when read, so the list
+   * doesn't shift under the pointer (as in Telegram); switching the filter clears them.
+   */
+  const [kept, setKept] = useState<ReadonlySet<number>>(() => new Set());
 
-  const rooms = useMemo(() => sortRooms(roomsById), [roomsById]);
+  const rooms = useMemo(() => visibleRooms(roomsById, list, filter, kept), [roomsById, list, filter, kept]);
+
+  useEffect(() => {
+    if (filter !== "unread") return;
+    const shown = rooms.filter((r) => !kept.has(r.id));
+    if (shown.length > 0) setKept(new Set([...kept, ...shown.map((r) => r.id)]));
+  }, [filter, rooms, kept]);
+
+  const chooseFilter = (next: RoomFilter) => {
+    setKept(new Set());
+    setFilter(next);
+    listRef.current?.scrollTo({ top: 0 });
+  };
 
   // Loads the next page when the end of the list scrolls into view. Observing again after each
   // change keeps loading while the end is still visible (a list shorter than the sidebar).
@@ -38,7 +59,7 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
     );
     observer.observe(more);
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, rooms.length]);
+  }, [hasMore, loadingMore, rooms.length, filter]);
 
   return (
     <nav className="sidebar">
@@ -86,8 +107,29 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
 
       <Invitations />
 
+      <div className="room-filter" role="group" aria-label="Show rooms">
+        {(["all", "unread"] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={filter === f ? "active" : ""}
+            aria-pressed={filter === f}
+            onClick={() => chooseFilter(f)}
+          >
+            {f === "all" ? "All" : "Unread"}
+            {f === "unread" && unreadRooms > 0 && (
+              <span className="filter-badge" aria-label={`${unreadRooms} rooms with unread messages`}>
+                {unreadRooms > 99 ? "99+" : unreadRooms}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       <ul className="room-list" ref={listRef}>
-        {loaded && rooms.length === 0 && <li className="muted empty">No rooms yet</li>}
+        {loaded && list.loaded && rooms.length === 0 && (
+          <li className="muted empty">{filter === "unread" ? "No unread messages" : "No rooms yet"}</li>
+        )}
         {rooms.map((room) => {
           const last = room.lastMessage;
           const preview = last

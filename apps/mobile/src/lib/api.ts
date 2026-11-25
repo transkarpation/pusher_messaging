@@ -16,6 +16,7 @@ import {
   type RealtimeConfig,
   type Room,
   type RoomsPage,
+  type UnreadRoomsResponse,
   type RoomUpdatedEvent,
   type SeedsResponse,
   type TokenAuthResponse,
@@ -86,13 +87,19 @@ export const api = {
   logout: () => request<void>("/auth/logout", "POST"),
   me: () => request<{ user: User | null }>("/auth/me"),
 
-  /** A page of the user's rooms, most recently active first; `before` is the previous page's `nextCursor`. */
-  getRooms: (query: { limit?: number; before?: string } = {}) => {
+  /**
+   * A page of the user's rooms, most recently active first; `before` is the previous page's `nextCursor`.
+   * With `unread`, only rooms with unread messages.
+   */
+  getRooms: (query: { limit?: number; before?: string; unread?: boolean } = {}) => {
     const params: string[] = [];
+    if (query.unread) params.push("unread=1");
     if (query.limit !== undefined) params.push(`limit=${query.limit}`);
     if (query.before !== undefined) params.push(`before=${encodeURIComponent(query.before)}`);
     return request<RoomsPage>(params.length > 0 ? `/rooms?${params.join("&")}` : "/rooms");
   },
+  /** Every room of the user's with unread messages, loaded or not (for the "Unread" count). */
+  getUnreadRoomIds: () => request<UnreadRoomsResponse>("/rooms/unread"),
   /** The new room, with the current user as its owner; invitees join once they accept. */
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
   /** Room owner only: renames the room and/or changes its picture; returns its new name and picture. */

@@ -43,12 +43,26 @@ export class ChatViews {
     return this.roomViews(userId, await this.rooms.roomsOf(userId, onlyIds));
   }
 
-  /** A page of the user's rooms, most recently active first (see `RoomsRepository.pageOf`). */
-  async roomsPage(userId: number, before: { activity: number; id: number } | undefined, size: number): Promise<RoomsPage> {
-    const { rows, hasMore } = await this.rooms.pageOf(userId, before, size);
+  /**
+   * A page of the user's rooms, most recently active first (see `RoomsRepository.pageOf`);
+   * with `unreadOnly`, only those with unread messages.
+   */
+  async roomsPage(
+    userId: number,
+    before: { activity: number; id: number } | undefined,
+    size: number,
+    unreadOnly = false,
+  ): Promise<RoomsPage> {
+    const unread = unreadOnly ? { hiddenAuthorIds: await this.blocks.blockedIds(userId) } : undefined;
+    const { rows, hasMore } = await this.rooms.pageOf(userId, before, size, unread);
     const rooms = await this.roomViews(userId, rows);
     const last = rows[rows.length - 1];
     return { rooms, nextCursor: hasMore && last ? roomsCursor(last) : null };
+  }
+
+  /** Ids of the user's rooms with unread messages (messages of people they blocked don't count). */
+  async unreadRoomIds(userId: number): Promise<number[]> {
+    return this.rooms.unreadRoomIdsOf(userId, await this.blocks.blockedIds(userId));
   }
 
   /** `Room`s for the rows, in the same order. */

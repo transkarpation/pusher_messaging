@@ -33,6 +33,7 @@ import {
   type Receipt,
   type Room,
   type RoomsPage,
+  type UnreadRoomsResponse,
   type RoomInvite,
   type RoomMember,
   type SeedsResponse,
@@ -101,14 +102,16 @@ export const api = {
   block: (input: BlockInput) => request<BlocksEvent>("/blocks", "POST", input),
   unblock: (userId: number) => request<BlocksEvent>(`/blocks/${userId}`, "DELETE"),
 
-  getRooms: (query: { limit?: number; before?: string } = {}) => {
+  getRooms: (query: { limit?: number; before?: string; unread?: boolean } = {}) => {
     const params = new URLSearchParams();
+    if (query.unread) params.set("unread", "1");
     if (query.limit !== undefined) params.set("limit", String(query.limit));
     if (query.before !== undefined) params.set("before", query.before);
     const qs = params.toString();
     return request<RoomsPage>(qs ? `/rooms?${qs}` : "/rooms");
   },
   getRoom: (roomId: number) => request<Room>(room(roomId)),
+  getUnreadRoomIds: () => request<UnreadRoomsResponse>("/rooms/unread"),
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
   updateRoom: (roomId: number, input: UpdateRoomInput) => request<RoomUpdatedEvent>(room(roomId), "PATCH", input),
   invite: (roomId: number, input: InviteInput) =>

@@ -461,6 +461,12 @@ const paths: Record<string, Record<string, Schema>> = {
         "skips none; a room that gets a message meanwhile shows up in `room:activity` on your user channel instead.",
       parameters: [
         { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: ROOMS_MAX_PAGE_SIZE, default: ROOMS_PAGE_SIZE } },
+        {
+          name: "unread",
+          in: "query",
+          description: "`1`: only rooms with unread messages, in the same order (cursors continue this filtered list)",
+          schema: { type: "string", enum: ["0", "1"], default: "0" },
+        },
         { name: "before", in: "query", description: "`nextCursor` of the previous page", schema: { type: "string", pattern: "^\\d+\\.\\d+$" } },
       ],
       responses: { 200: json(ref("RoomsPage"), "A page of the rooms you're a member of"), 400: error("Invalid limit or cursor"), ...unauthorized },
@@ -473,6 +479,16 @@ const paths: Record<string, Record<string, Schema>> = {
         "`avatar` is an optional picture: a PNG, JPEG or WebP image of up to 1 MB, base64-encoded (no `data:` prefix); clients scale it to 256 px first.",
       requestBody: jsonBody(fromZod(createRoomSchema)),
       responses: { 201: json(ref("Room"), "The new room"), ...badRequest, ...unauthorized },
+    },
+  },
+  "/rooms/unread": {
+    get: {
+      tags: [tags.rooms],
+      summary: "Rooms with unread messages",
+      description:
+        "Ids of all your rooms with unread messages (the rule of `unreadCount`), whether or not you've paged to them. " +
+        "Clients count them for the \"Unread\" filter.",
+      responses: { 200: json(object({ roomIds: arrayOf({ type: "integer" }) }), "Room ids"), ...unauthorized },
     },
   },
   "/rooms/{roomId}/avatar": {
