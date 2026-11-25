@@ -1,11 +1,5 @@
-import {
-  RealtimeClient,
-  createPhoenixConnection,
-  createPusherConnection,
-  withHost,
-  type RealtimeConnection,
-} from "@pm/realtime-client";
-import { PUSHER_AUTH_PATH, REALTIME_PATH, type RealtimeConfig } from "@pm/shared";
+import { createPhoenixConnection, withHost, type RealtimeConnection } from "@pm/realtime-client";
+import type { RealtimeConfig } from "@pm/shared";
 import { ApiRequestError, api } from "./api";
 
 let pending: Promise<RealtimeConnection> | null = null;
@@ -21,31 +15,20 @@ async function phoenixToken(): Promise<string | null> {
   }
 }
 
-/**
- * Opens a connection with the transport the server uses. The own WebSocket and Pusher
- * authenticate with the session cookie, Phoenix with a token the API issues for it.
- */
+/** Opens a connection to the Phoenix server, with a token the API issues for the session. */
 async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
-  if (config.driver === "phoenix") {
-    const { Socket, Presence } = await import("phoenix"); // loaded only for the Phoenix driver
-    return createPhoenixConnection({
-      Socket,
-      Presence,
-      url: withHost(config.socketUrl, location.hostname),
-      getToken: phoenixToken,
-    });
-  }
-  if (config.driver === "pusher") {
-    const { default: Pusher } = await import("pusher-js"); // loaded only for the Pusher driver
-    return createPusherConnection({ Pusher, key: config.key, cluster: config.cluster, authEndpoint: PUSHER_AUTH_PATH });
-  }
-  // Same origin as the page (Vite proxies it in development).
-  return new RealtimeClient({ url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${REALTIME_PATH}` });
+  const { Socket, Presence } = await import("phoenix");
+  return createPhoenixConnection({
+    Socket,
+    Presence,
+    url: withHost(config.socketUrl, location.hostname),
+    getToken: phoenixToken,
+  });
 }
 
 /**
- * The single realtime connection, opened on first use with the transport from
- * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket, Pusher or Phoenix).
+ * The single realtime connection, opened on first use with the Phoenix socket URL from
+ * GET /api/realtime/config.
  */
 export function getRealtime(): Promise<RealtimeConnection> {
   if (pending) return pending;

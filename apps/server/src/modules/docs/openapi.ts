@@ -238,13 +238,7 @@ const schemas: Record<string, Schema> = {
     },
   }),
   BlocksResponse: object({ blocked: { ...arrayOf(ref("User")), description: "Most recently blocked first" } }),
-  RealtimeConfig: {
-    oneOf: [
-      object({ driver: { type: "string", enum: ["ws"] } }),
-      object({ driver: { type: "string", enum: ["pusher"] }, key: { type: "string" }, cluster: { type: "string" } }),
-      object({ driver: { type: "string", enum: ["phoenix"] }, socketUrl: { type: "string" } }),
-    ],
-  },
+  RealtimeConfig: object({ socketUrl: { type: "string", description: "phoenix.js endpoint of the Phoenix server" } }),
   SeedAccount: object({
     id: { type: "integer" },
     username: { type: "string" },
@@ -822,13 +816,12 @@ const paths: Record<string, Record<string, Schema>> = {
   "/realtime/config": {
     get: {
       tags: [tags.realtime],
-      summary: "Which realtime transport to use",
+      summary: "Where to connect for realtime events",
       description:
-        "`ws`: the server's own WebSocket at `/api/realtime/ws`. `pusher`: Pusher Channels with this key and cluster. " +
-        "`phoenix`: the Phoenix server at `socketUrl` (phoenix.js), with a token from GET /realtime/phoenix/token. " +
-        "Set on the server with REALTIME_DRIVER.",
+        "The Phoenix server's endpoint (`socketUrl`, for phoenix.js), set on the server with PHOENIX_SOCKET_URL. " +
+        "Connect with a token from GET /realtime/phoenix/token.",
       security: [],
-      responses: { 200: json(ref("RealtimeConfig"), "The transport, plus what clients need to connect to it") },
+      responses: { 200: json(ref("RealtimeConfig"), "What clients need to connect") },
     },
   },
   "/realtime/phoenix/token": {
@@ -836,12 +829,11 @@ const paths: Record<string, Record<string, Schema>> = {
       tags: [tags.realtime],
       summary: "Token for connecting to the Phoenix server",
       description:
-        "Only with the `phoenix` driver. Pass it as the `token` connect param of phoenix.js. " +
+        "Pass it as the `token` connect param of phoenix.js. " +
         "Valid for 15 minutes; it is checked only when connecting, so fetch a new one for each reconnect.",
       responses: {
         200: json(object({ token: { type: "string" }, expiresAt: { type: "string", format: "date-time" } }), "The token"),
         ...unauthorized,
-        404: error("Not served with other drivers"),
       },
     },
   },
@@ -850,8 +842,8 @@ const paths: Record<string, Record<string, Schema>> = {
       tags: [tags.realtime],
       summary: "Channel authorization for the Phoenix server",
       description:
-        "Only with the `phoenix` driver. Called by the Phoenix server with `Authorization: Bearer <PHOENIX_SHARED_SECRET>` " +
-        "when a client joins a channel. Same rules as the other drivers. Not for clients.",
+        "Called by the Phoenix server with `Authorization: Bearer <PHOENIX_SHARED_SECRET>` when a client joins a channel. " +
+        "`presence-online`: anyone signed in; `private-user-{id}`: only that user; `private-room-{id}`: only room members. Not for clients.",
       security: [],
       requestBody: jsonBody(object({ userId: { type: "integer" }, channel: { type: "string" } })),
       responses: {
@@ -862,34 +854,6 @@ const paths: Record<string, Record<string, Schema>> = {
         400: error("userId and channel are required"),
         401: error("Invalid shared secret"),
         403: error("Forbidden channel, or unknown user"),
-        404: error("Not served with other drivers"),
-      },
-    },
-  },
-  "/realtime/pusher/auth": {
-    post: {
-      tags: [tags.realtime],
-      summary: "Authorize a Pusher channel subscription",
-      description:
-        "Only with the `pusher` driver. Called by pusher-js. `presence-online`: anyone signed in; " +
-        "`private-user-{id}`: only that user; `private-room-{id}`: only room members.",
-      requestBody: {
-        required: true,
-        content: {
-          "application/x-www-form-urlencoded": {
-            schema: object({ socket_id: { type: "string" }, channel_name: { type: "string" } }),
-          },
-        },
-      },
-      responses: {
-        200: json(
-          object({ auth: { type: "string" }, channel_data: { type: "string" } }, ["auth"]),
-          "Pusher auth signature (`channel_data` for the presence channel)",
-        ),
-        400: error("socket_id and channel_name are required"),
-        ...unauthorized,
-        403: error("Forbidden channel"),
-        404: error("Not served with the `ws` driver"),
       },
     },
   },
@@ -920,11 +884,10 @@ export const openApiDocument = {
       "here first and the browser sends the cookie with every later request. Mobile and other non-browser clients " +
       "sign in with `session: \"token\"` and send `Authorization: Bearer <token>` instead. Links in responses " +
       "(`avatarUrl`, attachment `url`) are paths on this server.\n\n" +
-      "Real-time events go through the server's own WebSocket, Pusher or the Phoenix server, as **GET /realtime/config** says. " +
-      "The WebSocket is at `/api/realtime/ws`, authenticated the same way (cookie or Bearer). " +
-      "The server sends `connected` with a socket id; subscribe with `{\"type\":\"subscribe\",\"channel\":…}`. " +
-      "Channels: `presence-online` (anyone signed in), `private-user-{id}` (only that user), `private-room-{id}` " +
-      "(room members). The protocol is described in `packages/shared` (`ClientFrame`, `ServerFrame`). " +
+      "Real-time events go through the Phoenix server (apps/realtime-server-phoenix) at the `socketUrl` from **GET /realtime/config**. " +
+      "Connect with phoenix.js, passing a token from **GET /realtime/phoenix/token** and a `socket_id` you pick for the connection. " +
+      "Channels (Phoenix topics): `presence-online` (anyone signed in), `private-user-{id}` (only that user), `private-room-{id}` " +
+      "(room members). " +
       "Send the socket id in the `X-Socket-Id` header to keep your own connection from receiving the event your request caused.",
   },
   servers: [{ url: "/api" }],

@@ -11,10 +11,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  # Realtime server for REALTIME_DRIVER=phoenix (apps/realtime-server-phoenix). Not started
-  # by `docker compose up` / `pnpm db:up`; run it with `pnpm realtime:phoenix`.
+  # The realtime server (apps/realtime-server-phoenix). `pnpm db:up` starts only the database;
+  # run this with `pnpm realtime:phoenix`, or start both with `docker compose up`.
   realtime-phoenix:
-    profiles: ["phoenix"]
     build: ./apps/realtime-server-phoenix
     env_file:
       - path: ./apps/server/.env # PHOENIX_SHARED_SECRET, shared with the API

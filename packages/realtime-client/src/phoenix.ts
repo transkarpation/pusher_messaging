@@ -12,8 +12,7 @@ import {
 
 /*
  * The parts of phoenix.js this adapter uses, typed structurally so the package doesn't depend
- * on it: the app imports "phoenix" (only when the server uses the Phoenix driver) and passes
- * `Socket` and `Presence` in.
+ * on it: the app imports "phoenix" and passes `Socket` and `Presence` in.
  */
 interface PhxPush {
   receive(status: string, callback: (response?: any) => void): PhxPush;
@@ -246,7 +245,7 @@ export function createPhoenixConnection(options: PhoenixConnectionOptions): Real
         if (!current()) return;
         const error: SubscriptionError = { status: reply?.status ?? 0, error: reply?.reason ?? "Subscription failed" };
         console.warn(`Realtime: subscribing to ${name} failed (${error.status}): ${error.error}`);
-        // phoenix.js would retry every few seconds; like the other transports, try again only after a reconnect.
+        // phoenix.js would retry every few seconds; try again only after a reconnect instead.
         phx.leave();
         entry.phx = null;
         channel.emit(SUBSCRIPTION_ERROR, error);

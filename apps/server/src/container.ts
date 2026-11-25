@@ -16,17 +16,7 @@ import {
   PollsService,
   RoomsService,
 } from "./modules/chat/index.js";
-import type { RealtimeConfig } from "@pm/shared";
-import {
-  PhoenixGateway,
-  PusherGateway,
-  RealtimeService,
-  WsGateway,
-  phoenixConfigFromEnv,
-  pusherConfigFromEnv,
-  realtimeDriverFromEnv,
-  type RealtimePublisher,
-} from "./modules/realtime/index.js";
+import { PhoenixGateway, RealtimeService, phoenixConfigFromEnv } from "./modules/realtime/index.js";
 import { S3Store, s3ConfigFromEnv, type AttachmentStorage } from "./modules/storage/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
@@ -38,17 +28,9 @@ import { DrizzleTransactor } from "./shared/transaction.js";
  * nothing else constructs them.
  */
 export function createContainer() {
-  // Realtime transport, chosen by REALTIME_DRIVER: the own WebSocket gateway, Pusher or the Phoenix server.
-  const driver = realtimeDriverFromEnv();
-  const pusher = driver === "pusher" ? new PusherGateway(pusherConfigFromEnv()) : null;
-  const phoenix = driver === "phoenix" ? new PhoenixGateway(phoenixConfigFromEnv()) : null;
-  const gateway = driver === "ws" ? new WsGateway() : null;
-  const publisher: RealtimePublisher = (pusher ?? phoenix ?? gateway)!;
-  const realtimeConfig: RealtimeConfig = pusher
-    ? { driver: "pusher", key: pusher.config.key, cluster: pusher.config.cluster }
-    : phoenix
-      ? { driver: "phoenix", socketUrl: phoenix.config.socketUrl }
-      : { driver: "ws" };
+  // Realtime events go through the Phoenix server (apps/realtime-server-phoenix).
+  const phoenix = new PhoenixGateway(phoenixConfigFromEnv());
+  const publisher = phoenix;
   const tx = new DrizzleTransactor(db);
 
   const users = new UsersService(new DrizzleUsersRepository(db), publisher);
@@ -86,11 +68,7 @@ export function createContainer() {
     attachments,
     polls,
     realtime,
-    /** The WebSocket gateway to attach to the HTTP server; null with the Pusher driver. */
-    gateway,
-    pusher,
     phoenix,
-    realtimeConfig,
     attachmentStorage,
     seeds,
   };

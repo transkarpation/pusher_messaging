@@ -1,14 +1,8 @@
 import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import {
-  RealtimeClient,
-  createPhoenixConnection,
-  createPusherConnection,
-  withHost,
-  type RealtimeConnection,
-} from "@pm/realtime-client";
-import { PUSHER_AUTH_PATH, REALTIME_PATH, type RealtimeConfig } from "@pm/shared";
-import { ApiRequestError, api, authHeaders, setSocketId } from "./api";
+import { createPhoenixConnection, withHost, type RealtimeConnection } from "@pm/realtime-client";
+import type { RealtimeConfig } from "@pm/shared";
+import { ApiRequestError, api, setSocketId } from "./api";
 import { API_URL } from "./config";
 
 let pending: Promise<RealtimeConnection> | null = null;
@@ -24,31 +18,17 @@ async function phoenixToken(): Promise<string | null> {
   }
 }
 
-/** Opens a connection with the transport the server uses, authenticated with the Bearer token. */
+/** Opens a connection to the Phoenix server, with a token the API issues for the session. */
 async function open(config: RealtimeConfig): Promise<RealtimeConnection> {
-  if (config.driver === "phoenix") {
-    const { Socket, Presence } = await import("phoenix"); // loaded only for the Phoenix driver
-    // A dev config says localhost; reach Phoenix on the same host as the API (emulator, LAN).
-    const apiHost = API_URL.match(/^https?:\/\/([^/:]+)/)?.[1] ?? "localhost";
-    return createPhoenixConnection({ Socket, Presence, url: withHost(config.socketUrl, apiHost), getToken: phoenixToken });
-  }
-  if (config.driver === "pusher") {
-    const { default: Pusher } = await import("pusher-js/react-native"); // loaded only for the Pusher driver
-    return createPusherConnection({
-      Pusher,
-      key: config.key,
-      cluster: config.cluster,
-      authEndpoint: API_URL + PUSHER_AUTH_PATH,
-      headers: authHeaders,
-    });
-  }
-  // React Native's WebSocket can send headers in the handshake.
-  return new RealtimeClient({ url: API_URL.replace(/^http/, "ws") + REALTIME_PATH, headers: authHeaders });
+  const { Socket, Presence } = await import("phoenix");
+  // A dev config says localhost; reach Phoenix on the same host as the API (emulator, LAN).
+  const apiHost = API_URL.match(/^https?:\/\/([^/:]+)/)?.[1] ?? "localhost";
+  return createPhoenixConnection({ Socket, Presence, url: withHost(config.socketUrl, apiHost), getToken: phoenixToken });
 }
 
 /**
- * The single realtime connection, opened on first use with the transport from
- * GET /api/realtime/config (REALTIME_DRIVER on the server: own WebSocket, Pusher or Phoenix).
+ * The single realtime connection, opened on first use with the Phoenix socket URL from
+ * GET /api/realtime/config.
  */
 export function getRealtime(): Promise<RealtimeConnection> {
   if (pending) return pending;

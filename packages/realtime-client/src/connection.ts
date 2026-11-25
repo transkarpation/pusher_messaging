@@ -17,7 +17,7 @@ export const MEMBER_ADDED = "realtime:member_added";
 /** Presence channel event: a user left (their last connection). Data: `PresenceMember`. */
 export const MEMBER_REMOVED = "realtime:member_removed";
 
-/** A realtime connection, whatever the transport. */
+/** A realtime connection to the Phoenix server. */
 export interface RealtimeConnection {
   readonly state: ConnectionState;
   /** Id of the current connection; send it as `X-Socket-Id` so the server skips echoing your own events. */
