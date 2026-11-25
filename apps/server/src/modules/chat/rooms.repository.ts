@@ -14,6 +14,9 @@ export interface RoomAvatar {
   data: Buffer;
 }
 
+/** `Room.activity`: `last_activity_at` as epoch milliseconds (exact: the column keeps milliseconds). */
+const roomActivity = sql<number>`(extract(epoch from ${rooms.lastActivityAt}) * 1000)::float8`.mapWith(Number);
+
 export interface RoomRow {
   id: number;
   name: string;
@@ -27,7 +30,7 @@ const roomColumns = {
   name: rooms.name,
   avatarUrl: roomAvatarUrl,
   createdAt: rooms.createdAt,
-  activity: rooms.activity,
+  activity: roomActivity,
 };
 
 export interface MemberRow {
@@ -43,7 +46,7 @@ export interface RoomsRepository {
   /** Rooms the user belongs to, optionally only `onlyIds`. */
   roomsOf(userId: number, onlyIds?: number[]): Promise<RoomRow[]>;
   /**
-   * Up to `size` of the user's rooms, most recently active first (activity, then id, both
+   * Up to `size` of the user's rooms, most recently active first (last activity, then id, both
    * descending), after `before` if given; and whether more follow.
    */
   pageOf(
@@ -107,8 +110,12 @@ export class DrizzleRoomsRepository implements RoomsRepository {
       .select(roomColumns)
       .from(rooms)
       .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
-      .where(before ? sql`(${rooms.activity}, ${rooms.id}) < (${before.activity}, ${before.id})` : undefined)
-      .orderBy(desc(rooms.activity), desc(rooms.id))
+      .where(
+        before
+          ? sql`(${rooms.lastActivityAt}, ${rooms.id}) < (timestamptz 'epoch' + ${before.activity} * interval '1 millisecond', ${before.id})`
+          : undefined,
+      )
+      .orderBy(desc(rooms.lastActivityAt), desc(rooms.id))
       // One extra row tells whether there's more beyond this page.
       .limit(size + 1);
     return { rows: rows.slice(0, size), hasMore: rows.length > size };

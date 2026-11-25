@@ -217,8 +217,8 @@ const schemas: Record<string, Schema> = {
     activity: {
       type: "integer",
       description:
-        "Orders the room list (higher: more recent; ties by id). On the scale of message ids: the id of the room's latest message, " +
-        "or a number drawn when the room was created. A new message raises it to the message's id.",
+        "When the room was last active, in epoch milliseconds: the time of its latest message, or of its creation without one. " +
+        "Orders the room list (higher: more recent; ties by id).",
     },
   }),
   RoomsPage: object({

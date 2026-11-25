@@ -50,7 +50,7 @@ export interface MessagesRepository {
   withTx(tx: TxScope): MessagesRepository;
   /** Up to `size` messages by the cursor, in id order, and whether more lie past them. */
   page(roomId: number, cursor: PageCursor, size: number): Promise<{ rows: MessageRow[]; hasMore: boolean }>;
-  /** Also raises the room's `activity` to the new message's id. */
+  /** Also moves the room's last activity up to the new message's time. */
   create(roomId: number, userId: number, kind: MessageKind, text: string): Promise<MessageRow>;
   /**
    * Changes a live (not deleted, not a system line) message, optionally only if `onlyAuthorId`
@@ -107,11 +107,12 @@ export class DrizzleMessagesRepository implements MessagesRepository {
 
   async create(roomId: number, userId: number, kind: MessageKind, text: string) {
     const [row] = await this.db.insert(messages).values({ roomId, userId, kind, text }).returning(messageColumns);
-    // The room moves up the room list. Only ever raised: a concurrent message with a higher id may have been first.
+    // The room moves up the room list (`now()` is the message's `created_at`, both from this
+    // transaction). Only ever raised: a concurrent message may have been there first.
     await this.db
       .update(rooms)
-      .set({ activity: row!.id })
-      .where(and(eq(rooms.id, roomId), lt(rooms.activity, row!.id)));
+      .set({ lastActivityAt: sql`greatest(${rooms.lastActivityAt}, now())` })
+      .where(eq(rooms.id, roomId));
     return row!;
   }
 

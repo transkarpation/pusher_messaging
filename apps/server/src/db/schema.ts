@@ -13,7 +13,6 @@ import {
   timestamp,
   varchar,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 /** Account roles, lowest first (see `ROLES` in @pm/shared). */
 export const userRole = pgEnum("user_role", ["user", "admin", "superadmin"]);
@@ -78,11 +77,10 @@ export const rooms = pgTable("rooms", {
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   /**
-   * Orders room lists (`Room.activity`): the id of the room's latest message, raised on every
-   * new one. A new room draws a number from the same sequence, so it sorts as if a message had
-   * just been posted in it.
+   * Orders room lists (`Room.activity`): when the room's latest message was posted, or when the
+   * room was created if it has none. Millisecond precision, so it round-trips through clients exactly.
    */
-  activity: integer("activity").notNull().default(sql`nextval('messages_id_seq')`),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
 });
 
 /** Room pictures, kept apart from `rooms` so room queries never load the bytes. */

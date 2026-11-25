@@ -235,7 +235,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       const found = s.rooms[message.roomId];
       if (!found) return s;
       // Any message moves the room up, the same as on the server.
-      const room = { ...found, activity: Math.max(found.activity, message.id) };
+      const room = { ...found, activity: Math.max(found.activity, Date.parse(message.createdAt)) };
       // Messages of blocked users don't show up in the preview or the unread count.
       if (!isSystemMessage(message) && isBlocked(message.author.id)) {
         return room.activity === found.activity ? s : { rooms: { ...s.rooms, [room.id]: room } };

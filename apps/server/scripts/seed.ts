@@ -322,7 +322,13 @@ async function insertRoom(
 ): Promise<number> {
   const [room] = await tx
     .insert(schema.rooms)
-    .values({ name: spec.name, createdBy: ids[spec.owner], createdAt: spec.createdAt })
+    .values({
+      name: spec.name,
+      createdBy: ids[spec.owner],
+      createdAt: spec.createdAt,
+      // Messages are inserted directly, so set what posting them would have.
+      lastActivityAt: messages.at(-1)?.createdAt ?? spec.createdAt,
+    })
     .returning({ id: schema.rooms.id });
   const roomId = room!.id;
 
@@ -371,27 +377,6 @@ async function insertRoom(
     );
   }
   return roomId;
-}
-
-/**
- * Orders the seeded rooms in the room list by their latest message (or creation, without one).
- * Messages are inserted room by room, so their ids don't follow their timestamps across rooms;
- * each room's `activity` is redrawn from the message id sequence in time order instead.
- */
-async function orderRooms(tx: Tx, roomIds: number[]) {
-  await tx.execute(sql`
-    update rooms set activity = ordered.activity
-    from (
-      select id, nextval('messages_id_seq') as activity
-      from (
-        select r.id, coalesce(max(m.created_at), r.created_at) as last_at
-        from rooms r left join messages m on m.room_id = r.id
-        where r.id in ${roomIds}
-        group by r.id
-        order by last_at, r.id
-      ) by_time
-    ) ordered
-    where rooms.id = ordered.id`);
 }
 
 async function insertPoll(tx: Tx, ids: Record<Username, number>, messageId: number, author: Username, poll: DemoPoll, at: Date) {
@@ -502,7 +487,6 @@ async function seed() {
       const { spec, messages, unread } = manyRoom(n, rand);
       roomIds.push(await insertRoom(tx, ids, spec, messages, { unread }));
     }
-    await orderRooms(tx, roomIds);
 
     // Maksym blocked Taras: Taras's messages are hidden from Maksym in "Загальний".
     await tx.insert(schema.userBlocks).values({ blockerId: ids.maksym, blockedId: ids.taras });

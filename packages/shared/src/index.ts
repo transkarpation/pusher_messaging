@@ -483,10 +483,10 @@ export interface Room {
   /** The current user's own watermarks in this room. */
   myReceipt: { deliveredUpTo: number; readUpTo: number };
   /**
-   * How recently the room was active, for ordering the room list (higher: more recent). It is
-   * on the scale of message ids: the id of the room's latest message (anyone's, system lines
-   * included), or, for a room without messages, a number drawn when it was created. A new
-   * message `m` raises it to `m.id`. Ties are broken by room id, higher first.
+   * When the room was last active, in epoch milliseconds, for ordering the room list (higher:
+   * more recent): the time of its latest message (anyone's, system lines included), or of its
+   * creation if it has none. A new message `m` raises it to `Date.parse(m.createdAt)`. Ties are
+   * broken by room id, higher first.
    */
   activity: number;
 }
@@ -654,7 +654,7 @@ export interface RoomMembersEvent {
   members: RoomMember[];
 }
 
-/** A new message in a room; the room's `activity` is now `message.id`. */
+/** A new message in a room; the room's `activity` is now the message's time. */
 export interface RoomActivityEvent {
   roomId: number;
   message: Message;
