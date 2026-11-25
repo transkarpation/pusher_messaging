@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  ROOMS_MAX_PAGE_SIZE,
+  ROOMS_PAGE_SIZE,
   ATTACHMENT_MAX_BYTES,
   ATTACHMENTS_PER_MESSAGE,
   WAVEFORM_BARS,
@@ -212,6 +214,16 @@ const schemas: Record<string, Schema> = {
       description: "Regular messages from others newer than your read watermark (not deleted, not from people you blocked)",
     },
     myReceipt: object({ deliveredUpTo: { type: "integer" }, readUpTo: { type: "integer" } }),
+    activity: {
+      type: "integer",
+      description:
+        "Orders the room list (higher: more recent; ties by id). On the scale of message ids: the id of the room's latest message, " +
+        "or a number drawn when the room was created. A new message raises it to the message's id.",
+    },
+  }),
+  RoomsPage: object({
+    rooms: arrayOf(ref("Room")),
+    nextCursor: { type: ["string", "null"], description: "Pass as `before` for the next page; null on the last one" },
   }),
   RoomUpdatedEvent: object({
     roomId: { type: "integer" },
@@ -443,8 +455,15 @@ const paths: Record<string, Record<string, Schema>> = {
   "/rooms": {
     get: {
       tags: [tags.rooms],
-      summary: "Your rooms",
-      responses: { 200: json(arrayOf(ref("Room")), "Rooms you're a member of"), ...unauthorized },
+      summary: "Your rooms, a page at a time",
+      description:
+        "Most recently active first (`activity`, then `id`, both descending). Rooms only ever move up, so paging with `before` " +
+        "skips none; a room that gets a message meanwhile shows up in `room:activity` on your user channel instead.",
+      parameters: [
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: ROOMS_MAX_PAGE_SIZE, default: ROOMS_PAGE_SIZE } },
+        { name: "before", in: "query", description: "`nextCursor` of the previous page", schema: { type: "string", pattern: "^\\d+\\.\\d+$" } },
+      ],
+      responses: { 200: json(ref("RoomsPage"), "A page of the rooms you're a member of"), 400: error("Invalid limit or cursor"), ...unauthorized },
     },
     post: {
       tags: [tags.rooms],

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
-  MESSAGE_CREATED_EVENT,
   MESSAGE_DELETED_EVENT,
   MESSAGE_UPDATED_EVENT,
   RECEIPT_UPDATED_EVENT,
+  ROOMS_MAX_PAGE_SIZE,
+  ROOMS_PAGE_SIZE,
+  ROOM_ACTIVITY_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
@@ -41,7 +43,15 @@ export default function RoomsScreen() {
   const me = useSession((s) => s.user)!;
   const signOut = useSession((s) => s.signOut);
   const [rooms, setRooms] = useState<Room[] | null>(null);
+  /** Continues the list past the loaded rooms; null once all are loaded. */
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  /** How many rooms are loaded, so a reload fetches as many (the pages scrolled through so far). */
+  const loadedCount = useRef(0);
+  loadedCount.current = rooms?.length ?? 0;
+  /** Bumped by every reload, so a page requested before it isn't appended after. */
+  const generation = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -56,17 +66,43 @@ export default function RoomsScreen() {
       },
     });
 
+  /** Reloads the rooms from the top: the first page, or as many as are loaded (up to ROOMS_MAX_PAGE_SIZE). */
   const load = useCallback(async () => {
+    const gen = ++generation.current;
     try {
       await api.receiptsSettled(); // so a room that was just read comes back with no unread count
-      const list = await api.getRooms();
-      setRooms(list);
-      reportDelivered(list);
+      const limit = Math.min(Math.max(loadedCount.current, ROOMS_PAGE_SIZE), ROOMS_MAX_PAGE_SIZE);
+      const page = await api.getRooms({ limit });
+      if (gen !== generation.current) return; // a newer reload is under way
+      setRooms(page.rooms);
+      setNextCursor(page.nextCursor);
+      reportDelivered(page.rooms);
       setError(null);
     } catch (e) {
-      setError((e as Error).message);
+      if (gen === generation.current) setError((e as Error).message);
     }
   }, []);
+
+  /** Appends the next page when the list is scrolled to its end. */
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    const gen = generation.current;
+    setLoadingMore(true);
+    try {
+      const page = await api.getRooms({ before: nextCursor });
+      if (gen !== generation.current) return; // reloaded meanwhile; that reload has the list
+      setRooms((list) => {
+        const known = new Set((list ?? []).map((r) => r.id));
+        return [...(list ?? []), ...page.rooms.filter((r) => !known.has(r.id))];
+      });
+      setNextCursor(page.nextCursor);
+      reportDelivered(page.rooms);
+    } catch (e) {
+      console.warn("Loading more rooms failed:", e);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore]);
 
   const focused = useRef(false);
   const reloadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -91,6 +127,8 @@ export default function RoomsScreen() {
   }, [load]);
 
   // Unread counts and last messages, live: the server counts them, so any change in a room reloads the list.
+  // New messages in any room arrive on the user channel (ROOM_ACTIVITY_EVENT), loaded or not; the
+  // channels of the loaded rooms report the rest (edits, deletions, members, renames, receipts).
   const roomIds = rooms?.map((r) => r.id).join(",") ?? "";
   useEffect(() => {
     const stops: (() => void)[] = [];
@@ -99,7 +137,6 @@ export default function RoomsScreen() {
       .then((conn) => {
         if (stopped) return;
         const roomHandlers = {
-          [MESSAGE_CREATED_EVENT]: scheduleReload,
           [MESSAGE_UPDATED_EVENT]: scheduleReload,
           [MESSAGE_DELETED_EVENT]: scheduleReload,
           [ROOM_MEMBERS_EVENT]: scheduleReload,
@@ -110,7 +147,13 @@ export default function RoomsScreen() {
         for (const id of roomIds ? roomIds.split(",").map(Number) : []) {
           stops.push(listen(conn, roomChannel(id), roomHandlers));
         }
-        stops.push(listen(conn, userChannel(me.id), { [ROOM_ADDED_EVENT]: scheduleReload, [ROOM_REMOVED_EVENT]: scheduleReload }));
+        stops.push(
+          listen(conn, userChannel(me.id), {
+            [ROOM_ACTIVITY_EVENT]: scheduleReload,
+            [ROOM_ADDED_EVENT]: scheduleReload,
+            [ROOM_REMOVED_EVENT]: scheduleReload,
+          }),
+        );
       })
       .catch((e) => console.warn("Realtime is unavailable:", e));
     return () => {
@@ -152,6 +195,9 @@ export default function RoomsScreen() {
           }
           ListHeaderComponent={error ? <Text style={styles.error}>{error}</Text> : undefined}
           ListEmptyComponent={rooms ? <Text style={styles.empty}>No rooms yet. Tap + to create one.</Text> : undefined}
+          onEndReached={() => void loadMore()}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={loadingMore ? <Text style={styles.empty}>Loading more rooms…</Text> : undefined}
           renderItem={({ item }) => (
             <Pressable
               style={({ pressed }) => [styles.row, pressed && styles.pressed]}

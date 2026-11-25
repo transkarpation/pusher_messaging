@@ -11,6 +11,7 @@ import {
   POLL_UPDATED_EVENT,
   POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
+  ROOM_ACTIVITY_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
@@ -29,6 +30,7 @@ import {
   type PresenceMember,
   type Receipt,
   type Room,
+  type RoomActivityEvent,
   type RoomInvitesEvent,
   type RoomMembersEvent,
   type RoomRemovedEvent,
@@ -69,8 +71,10 @@ function onResubscribed(channel: Channel, resync: () => void) {
 /**
  * Wires all realtime channels into the stores:
  * - presence-online: who is online, profile updates
- * - private-user-{me}: being added to / removed from rooms, invitations, block list changes
- * - private-room-{id} for every room in the rooms store (kept in sync as it changes)
+ * - private-user-{me}: new messages in any of the user's rooms (moving them up the list, or
+ *   loading them), being added to / removed from rooms, invitations, block list changes
+ * - private-room-{id} for every room in the rooms store (kept in sync as it changes): messages,
+ *   typing, receipts, members and invites of the rooms the list has loaded
  *
  * After a reconnect, the room list and the messages of loaded rooms are refetched.
  */
@@ -88,11 +92,10 @@ export function useRealtime(me: User) {
     const invitations = useInvitations.getState();
 
     const roomHandlers = (roomId: number): Handlers => ({
+      // The room list learns about it from ROOM_ACTIVITY_EVENT on the user channel.
       [MESSAGE_CREATED_EVENT]: (m: Message) => {
         typing.stop(roomId, m.author.id);
         messages.receive(m);
-        const viewing = useRooms.getState().activeRoomId === roomId && isWindowActive();
-        rooms.onMessage(m, { fromMe: m.author.id === me.id, viewing });
       },
       [MESSAGE_UPDATED_EVENT]: (m: Message) => messages.applyUpdate(m),
       [MESSAGE_DELETED_EVENT]: (m: Message) => messages.applyDelete(m, me.id),
@@ -150,6 +153,10 @@ export function useRealtime(me: User) {
 
         const mine = conn.subscribe(userChannel(me.id));
         bindAll(mine, {
+          [ROOM_ACTIVITY_EVENT]: (e: RoomActivityEvent) => {
+            const viewing = useRooms.getState().activeRoomId === e.roomId && isWindowActive();
+            rooms.onActivity(e, { fromMe: e.message.author.id === me.id, viewing });
+          },
           [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
           [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
           [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),

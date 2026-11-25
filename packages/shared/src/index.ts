@@ -482,6 +482,45 @@ export interface Room {
   unreadCount: number;
   /** The current user's own watermarks in this room. */
   myReceipt: { deliveredUpTo: number; readUpTo: number };
+  /**
+   * How recently the room was active, for ordering the room list (higher: more recent). It is
+   * on the scale of message ids: the id of the room's latest message (anyone's, system lines
+   * included), or, for a room without messages, a number drawn when it was created. A new
+   * message `m` raises it to `m.id`. Ties are broken by room id, higher first.
+   */
+  activity: number;
+}
+
+/** Rooms per page of GET /rooms when `limit` isn't given. */
+export const ROOMS_PAGE_SIZE = 10;
+/** Largest `limit` GET /rooms accepts. */
+export const ROOMS_MAX_PAGE_SIZE = 100;
+
+/** The cursor that continues a room list after `room` (see `RoomsPage.nextCursor`). */
+export const roomsCursor = (room: Pick<Room, "id" | "activity">) => `${room.activity}.${room.id}`;
+
+/**
+ * Query of GET /rooms: the user's rooms, most recently active first (`Room.activity`, then id).
+ * - `limit`: rooms per page (ROOMS_PAGE_SIZE by default, at most ROOMS_MAX_PAGE_SIZE);
+ * - `before`: a `nextCursor` from the previous page, for the rooms after it.
+ */
+export const roomsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(ROOMS_MAX_PAGE_SIZE).default(ROOMS_PAGE_SIZE),
+  before: z
+    .string()
+    .regex(/^\d+\.\d+$/, "Invalid cursor")
+    .transform((v) => {
+      const [activity, id] = v.split(".").map(Number) as [number, number];
+      return { activity, id };
+    })
+    .optional(),
+});
+export type RoomsQuery = z.input<typeof roomsQuerySchema>;
+
+export interface RoomsPage {
+  rooms: Room[];
+  /** Pass as `before` for the next page; null when this was the last one. */
+  nextCursor: string | null;
 }
 
 /** Max messages returned by one GET /rooms/:id/messages. */
@@ -559,6 +598,13 @@ export const roomChannel = (roomId: number) => `private-room-${roomId}`;
 /** Per-user channel for personal notifications (added to / removed from rooms). */
 export const userChannel = (userId: number) => `private-user-${userId}`;
 
+/**
+ * Internal topic on the realtime server, not a channel clients join: each user channel listens
+ * to the topics of the user's rooms and forwards their ROOM_ACTIVITY_EVENT. The API publishes
+ * one event per message here instead of one per member.
+ */
+export const roomActivityTopic = (roomId: number) => `room-activity:${roomId}`;
+
 export const ROOM_CHANNEL_RE = /^private-room-(\d+)$/;
 export const USER_CHANNEL_RE = /^private-user-(\d+)$/;
 
@@ -575,6 +621,12 @@ export const ROOM_UPDATED_EVENT = "room:updated";
 /** Carries `PollUpdatedEvent`: a poll got a vote, an option or a comment. */
 export const POLL_UPDATED_EVENT = "poll:updated";
 // user channel events
+/**
+ * Carries `RoomActivityEvent`: a new message in one of the user's rooms. Sent for every room
+ * the user belongs to, whether or not the client has it loaded or subscribed to its channel,
+ * so the room list can move it up (and fetch it, if it wasn't loaded).
+ */
+export const ROOM_ACTIVITY_EVENT = "room:activity";
 export const ROOM_ADDED_EVENT = "room:added";
 export const ROOM_REMOVED_EVENT = "room:removed";
 export const INVITATION_ADDED_EVENT = "invitation:added";
@@ -600,6 +652,12 @@ export interface TypingEvent {
 export interface RoomMembersEvent {
   roomId: number;
   members: RoomMember[];
+}
+
+/** A new message in a room; the room's `activity` is now `message.id`. */
+export interface RoomActivityEvent {
+  roomId: number;
+  message: Message;
 }
 
 export interface RoomRemovedEvent {

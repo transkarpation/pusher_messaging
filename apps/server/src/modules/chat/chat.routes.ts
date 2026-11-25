@@ -11,6 +11,7 @@ import {
   updateRoomSchema,
   inviteSchema,
   messagesQuerySchema,
+  roomsQuerySchema,
   pollCommentSchema,
   pollOptionSchema,
   pollVoteSchema,
@@ -62,8 +63,9 @@ export function roomsRoutes(
   const router = Router();
   router.use(requireAuth);
 
+  /** A page of the caller's rooms, most recently active first; `before` continues from `nextCursor`. */
   router.get("/", async (req, res) => {
-    res.json(await rooms.listFor(req.user!.id));
+    res.json(await rooms.listFor(req.user!.id, parse(roomsQuerySchema, req.query)));
   });
 
   router.post("/", async (req, res) => {

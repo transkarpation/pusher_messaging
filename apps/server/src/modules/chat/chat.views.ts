@@ -1,4 +1,16 @@
-import type { Attachment, Invitation, Message, Poll, PollState, Room, RoomInvite, RoomMember, User } from "@pm/shared";
+import {
+  roomsCursor,
+  type Attachment,
+  type Invitation,
+  type Message,
+  type Poll,
+  type PollState,
+  type Room,
+  type RoomInvite,
+  type RoomMember,
+  type RoomsPage,
+  type User,
+} from "@pm/shared";
 import type { BlocksService } from "../blocks/index.js";
 import type { UsersService } from "../users/index.js";
 import type { AttachmentsRepository } from "./attachments.repository.js";
@@ -6,7 +18,7 @@ import { toAttachment } from "./attachments.service.js";
 import type { InvitesRepository } from "./invites.repository.js";
 import type { MessageRow, MessagesRepository } from "./messages.repository.js";
 import type { PollData, PollsRepository } from "./polls.repository.js";
-import type { RoomsRepository } from "./rooms.repository.js";
+import type { RoomRow, RoomsRepository } from "./rooms.repository.js";
 
 /**
  * Builds the chat's API shapes (`Room`, `Message`, …) from repository rows. People are
@@ -28,7 +40,19 @@ export class ChatViews {
    * unread count as this user sees them (messages of people they blocked left out).
    */
   async roomsFor(userId: number, onlyIds?: number[]): Promise<Room[]> {
-    const base = await this.rooms.roomsOf(userId, onlyIds);
+    return this.roomViews(userId, await this.rooms.roomsOf(userId, onlyIds));
+  }
+
+  /** A page of the user's rooms, most recently active first (see `RoomsRepository.pageOf`). */
+  async roomsPage(userId: number, before: { activity: number; id: number } | undefined, size: number): Promise<RoomsPage> {
+    const { rows, hasMore } = await this.rooms.pageOf(userId, before, size);
+    const rooms = await this.roomViews(userId, rows);
+    const last = rows[rows.length - 1];
+    return { rooms, nextCursor: hasMore && last ? roomsCursor(last) : null };
+  }
+
+  /** `Room`s for the rows, in the same order. */
+  private async roomViews(userId: number, base: RoomRow[]): Promise<Room[]> {
     if (base.length === 0) return [];
     const ids = base.map((r) => r.id);
     const hidden = await this.blocks.blockedIds(userId);
@@ -66,6 +90,7 @@ export class ChatViews {
         lastMessage: (last && this.toMessage(last, users, files, polls)) ?? null,
         unreadCount: unread.get(r.id) ?? 0,
         myReceipt: { deliveredUpTo: mine?.deliveredUpTo ?? 0, readUpTo: mine?.readUpTo ?? 0 },
+        activity: r.activity,
       };
     });
   }

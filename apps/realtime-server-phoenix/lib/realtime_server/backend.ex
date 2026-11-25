@@ -1,7 +1,8 @@
 defmodule RealtimeServer.Backend do
   @moduledoc """
   Channel access is decided by the Node API, the only place that knows room membership.
-  A grant is the JSON `RealtimeService.authorize` returns: `%{}` for private channels,
+  A grant is the JSON `RealtimeService.authorize` returns: `%{}` for room channels,
+  `%{"roomActivity" => [room_id, ...]}` for the user's own channel, and
   `%{"presence" => %{"id" => "42", "info" => %{...}}}` for the presence channel.
   """
 

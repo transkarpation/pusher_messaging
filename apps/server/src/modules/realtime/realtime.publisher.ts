@@ -9,7 +9,13 @@ export interface RealtimePublisher {
   publish(channel: string, event: string, data: unknown, exceptSocketId?: string): void;
 }
 
-/** What a granted subscription carries: on a presence channel, the member the subscriber appears as. */
+/** What a granted subscription carries; the realtime server acts on it. */
 export interface ChannelGrant {
+  /** On a presence channel: the member the subscriber appears as. */
   presence?: PresenceMember;
+  /**
+   * On the user's own channel: the rooms they belong to. The channel forwards the activity topic
+   * (`roomActivityTopic`) of each, and follows ROOM_ADDED_EVENT / ROOM_REMOVED_EVENT afterwards.
+   */
+  roomActivity?: number[];
 }

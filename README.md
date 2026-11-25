@@ -162,12 +162,21 @@ Modules use each other only through the facade exported from their `index.ts`, n
 | Channel | Events |
 |---|---|
 | `presence-online` | who is online, profile updates |
-| `private-user-{id}` | invitations received or gone, the user joined or was removed from a room, their own poll votes (for their other tabs) |
+| `private-user-{id}` | a new message in any of the user's rooms (`room:activity`), invitations received or gone, the user joined or was removed from a room, their own poll votes (for their other tabs) |
 | `private-room-{id}` | new, edited and deleted messages, poll results, typing, receipts, member and invite changes, the room renamed or its picture changed |
 
 Each `subscribe` is checked by `RealtimeService`: anyone signed in may join `presence-online`, only the user their own `private-user-{id}`, only members of a room its `private-room-{id}`. Each connection has a socket id; clients send it back as `X-Socket-Id` on API calls, so events their request causes skip the connection that already has the result.
 
-The client loads its initial state over REST: `GET /api/rooms` for the room list, and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
+The client loads its initial state over REST: the first page of `GET /api/rooms` for the room list (see [Room list paging](#room-list-paging)), and `GET /api/rooms/:id/messages` when a room is first opened. After that it keeps the state current from channel events.
+
+## Room list paging
+
+A user can be in many rooms, so the list is loaded a page at a time and only the loaded rooms' channels are joined.
+
+- **Order.** `rooms.activity` (`Room.activity`) is on the scale of message ids: every new message raises it to the message's id (`MessagesRepository.create`), and a new room draws a number from the message id sequence, so it starts at the top. `GET /api/rooms?limit=&before=` returns rooms by `activity`, then `id`, both descending: 10 by default, at most 100. `nextCursor` (`"{activity}.{id}"` of the last room) continues the list. Activity only goes up, so a room never moves down past the cursor and paging skips nothing.
+- **New messages in rooms that aren't loaded.** Besides `message:created` on the room's channel, the API publishes `room:activity` (`{ roomId, message }`) to the internal topic `room-activity:{roomId}` on the Phoenix server, once per message. Each user's `private-user-{id}` channel listens to the topics of that user's rooms: the join grant lists them (`roomActivity`), and the channel follows `room:added` / `room:removed` afterwards. So every client hears about every message in its rooms without joining 50+ room channels, and the API sends one event per message, not one per member.
+- **Web client** (`apps/client/src/store/rooms.ts`). `fetch()` loads the first page, or as many rooms as are loaded already (up to 100) when refreshing after a reconnect or a block list change, plus the remembered active room if it is further down. Scrolling to the end of the sidebar calls `fetchMore()`. On `room:activity` a loaded room moves up and gets the new preview and unread count; a room that isn't loaded is fetched with `GET /api/rooms/:id`. The list is sorted by `activity`, the same order as the server's.
+- **Mobile** (`apps/mobile/src/app/index.tsx`). The list loads the next page when scrolled to its end, and reloads as many rooms as are loaded on `room:activity` and other changes.
 
 ## Realtime transport
 
@@ -252,7 +261,7 @@ The client fixes this by refetching the affected state once realtime is back.
 
 **When it runs.** On reconnect, the client resubscribes every channel and fires `realtime:subscribed` on each one again. The client ignores the first subscription and treats any later one as a reconnect (`onResubscribed` in `apps/client/src/hooks/useRealtime.ts`). Because the refetch starts only after the channel is live again, every event published after the refetch arrives over the channel. Duplicates between the two sources are harmless, since merges are keyed by message id.
 
-**User channel resubscribed → refresh the room list.** `useRooms.fetch()` reloads `GET /api/rooms`. That brings back rooms added or removed while offline, current members, last messages, unread counts and the user's own receipts. The result is merged with the local state (`keepNewer` in `apps/client/src/store/rooms.ts`). If a newer message arrived over realtime while the request was in flight, it is kept, and read/delivered watermarks only move forward. If the refresh fails, the current list stays instead of switching to an error screen.
+**User channel resubscribed → refresh the room list.** `useRooms.fetch()` reloads the top of `GET /api/rooms`, as many rooms as were loaded. That brings back rooms added or removed while offline, current members, last messages, unread counts and the user's own receipts. The result is merged with the local state (`keepNewer` in `apps/client/src/store/rooms.ts`). If a newer message arrived over realtime while the request was in flight, it is kept, and read/delivered watermarks only move forward. If the refresh fails, the current list stays instead of switching to an error screen.
 
 **Room channel resubscribed → fetch the missed messages.** `useMessages.catchUp(roomId)` runs only for rooms whose messages are already loaded. It takes the id of the newest message it has and requests what came after it:
 

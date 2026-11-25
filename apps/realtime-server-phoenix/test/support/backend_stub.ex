@@ -8,7 +8,10 @@ defmodule RealtimeServer.BackendStub do
   end
 
   def authorize(user_id, "private-user-" <> id) do
-    if id == "#{user_id}", do: {:ok, %{}}, else: {:error, 403, "Forbidden channel"}
+    # Everyone is in room 1 only.
+    if id == "#{user_id}",
+      do: {:ok, %{"roomActivity" => [1]}},
+      else: {:error, 403, "Forbidden channel"}
   end
 
   def authorize(_user_id, "private-room-1"), do: {:ok, %{}}

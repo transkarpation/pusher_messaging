@@ -7,12 +7,14 @@ import {
   POLL_UPDATED_EVENT,
   POLL_VOTED_EVENT,
   RECEIPT_UPDATED_EVENT,
+  ROOM_ACTIVITY_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
   ROOM_REMOVED_EVENT,
   ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
+  roomActivityTopic,
   roomChannel,
   userChannel,
   type InvitationRemovedEvent,
@@ -20,6 +22,7 @@ import {
   type PollUpdatedEvent,
   type PollVotedEvent,
   type Receipt,
+  type RoomActivityEvent,
   type RoomInvite,
   type RoomInvitesEvent,
   type RoomMember,
@@ -41,8 +44,14 @@ export class ChatEvents {
     private readonly views: ChatViews,
   ) {}
 
+  /**
+   * The message to the room's channel, and ROOM_ACTIVITY_EVENT to the room's activity topic, which
+   * the realtime server forwards to each member's user channel (also for rooms a client hasn't loaded).
+   */
   messageCreated(message: Message, except?: string) {
     this.realtime.publish(roomChannel(message.roomId), MESSAGE_CREATED_EVENT, message, except);
+    const activity: RoomActivityEvent = { roomId: message.roomId, message };
+    this.realtime.publish(roomActivityTopic(message.roomId), ROOM_ACTIVITY_EVENT, activity, except);
   }
 
   messageUpdated(message: Message, except?: string) {

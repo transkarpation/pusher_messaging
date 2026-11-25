@@ -15,6 +15,7 @@ import {
   type Receipt,
   type RealtimeConfig,
   type Room,
+  type RoomsPage,
   type RoomUpdatedEvent,
   type SeedsResponse,
   type TokenAuthResponse,
@@ -85,7 +86,13 @@ export const api = {
   logout: () => request<void>("/auth/logout", "POST"),
   me: () => request<{ user: User | null }>("/auth/me"),
 
-  getRooms: () => request<Room[]>("/rooms"),
+  /** A page of the user's rooms, most recently active first; `before` is the previous page's `nextCursor`. */
+  getRooms: (query: { limit?: number; before?: string } = {}) => {
+    const params: string[] = [];
+    if (query.limit !== undefined) params.push(`limit=${query.limit}`);
+    if (query.before !== undefined) params.push(`before=${encodeURIComponent(query.before)}`);
+    return request<RoomsPage>(params.length > 0 ? `/rooms?${params.join("&")}` : "/rooms");
+  },
   /** The new room, with the current user as its owner; invitees join once they accept. */
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
   /** Room owner only: renames the room and/or changes its picture; returns its new name and picture. */

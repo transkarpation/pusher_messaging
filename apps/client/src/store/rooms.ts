@@ -1,15 +1,18 @@
 import { create } from "zustand";
 import {
+  ROOMS_MAX_PAGE_SIZE,
+  ROOMS_PAGE_SIZE,
   isSystemMessage,
   type Message,
   type Receipt,
   type Room,
+  type RoomActivityEvent,
   type RoomInvite,
   type RoomMember,
   type RoomUpdatedEvent,
   type User,
 } from "@pm/shared";
-import { api } from "../api";
+import { ApiRequestError, api } from "../api";
 import { latestVersion } from "../lib/messageVersion";
 import { isBlocked } from "./blocks";
 
@@ -33,11 +36,15 @@ function writeActive(id: number | null) {
   }
 }
 
-/** Most recently active rooms first. */
+/** Most recently active rooms first: the order the server pages them in. */
 export function sortRooms(rooms: Record<number, Room>): Room[] {
-  const activity = (r: Room) => r.lastMessage?.createdAt ?? r.createdAt;
-  return Object.values(rooms).sort((a, b) => activity(b).localeCompare(activity(a)));
+  return Object.values(rooms).sort((a, b) => b.activity - a.activity || b.id - a.id);
 }
+
+/** Rooms being fetched one by one because of activity in them (see `onActivity`). */
+const fetchingRooms = new Set<number>();
+/** Bumped by `fetch` and `reset`, so a page requested before them isn't merged after. */
+let generation = 0;
 
 /**
  * A refetched room, keeping what realtime events delivered while the request was
@@ -45,13 +52,14 @@ export function sortRooms(rooms: Record<number, Room>): Room[] {
  */
 function keepNewer(fetched: Room, local: Room | undefined, trustServer: boolean): Room {
   if (!local) return fetched;
+  const activity = Math.max(fetched.activity, local.activity);
   if (trustServer) {
     // Only the watermarks; last message and unread count are the server's.
     const myReceipt = {
       deliveredUpTo: Math.max(fetched.myReceipt.deliveredUpTo, local.myReceipt.deliveredUpTo),
       readUpTo: Math.max(fetched.myReceipt.readUpTo, local.myReceipt.readUpTo),
     };
-    return { ...fetched, myReceipt };
+    return { ...fetched, myReceipt, activity };
   }
   const localIsNewer =
     !!local.lastMessage && local.lastMessage.id > (fetched.lastMessage?.id ?? 0);
@@ -65,22 +73,38 @@ function keepNewer(fetched: Room, local: Room | undefined, trustServer: boolean)
     readUpTo: Math.max(fetched.myReceipt.readUpTo, local.myReceipt.readUpTo),
   };
   const room = localIsNewer
-    ? { ...fetched, lastMessage: local.lastMessage, unreadCount: local.unreadCount, myReceipt }
-    : { ...fetched, lastMessage, myReceipt };
+    ? { ...fetched, lastMessage: local.lastMessage, unreadCount: local.unreadCount, myReceipt, activity }
+    : { ...fetched, lastMessage, myReceipt, activity };
   const caughtUp = myReceipt.readUpTo >= (room.lastMessage?.id ?? 0);
   return caughtUp ? { ...room, unreadCount: 0 } : room;
 }
 
 interface RoomsState {
+  /**
+   * The rooms loaded so far: the most recently active ones, page by page as the list is
+   * scrolled (`fetchMore`), plus any that got a message or were joined since, and the active one.
+   */
   rooms: Record<number, Room>;
   loaded: boolean;
   error: string | null;
   activeRoomId: number | null;
+  /** Continues the list past the loaded pages; null when every room is loaded. */
+  nextCursor: string | null;
+  loadingMore: boolean;
   /**
-   * Loads the room list. With `trustServer`, last messages and unread counts are taken
-   * as fetched even if they look older than ours (after blocking someone they are).
+   * Loads the first page of the room list, or as many rooms as are loaded already (up to
+   * ROOMS_MAX_PAGE_SIZE) when refreshing, and replaces the list with them. With `trustServer`,
+   * last messages and unread counts are taken as fetched even if they look older than ours
+   * (after blocking someone they are).
    */
   fetch: (opts?: { trustServer?: boolean }) => Promise<void>;
+  /** Loads the next page of rooms, if there is one. */
+  fetchMore: () => Promise<void>;
+  /**
+   * A new message in one of the user's rooms (ROOM_ACTIVITY_EVENT): moves the room up and updates
+   * its preview and unread count, or fetches the room if it isn't loaded.
+   */
+  onActivity: (event: RoomActivityEvent, opts: { fromMe: boolean; viewing: boolean }) => void;
   upsert: (room: Room) => void;
   remove: (roomId: number) => void;
   setActive: (roomId: number | null) => void;
@@ -106,20 +130,69 @@ export const useRooms = create<RoomsState>((set, get) => ({
   error: null,
   activeRoomId: readActive(),
 
+  nextCursor: null,
+  loadingMore: false,
+
   fetch: async ({ trustServer = false } = {}) => {
+    const gen = ++generation;
     try {
-      const list = await api.getRooms();
+      const loadedCount = Object.keys(get().rooms).length;
+      const limit = Math.min(Math.max(loadedCount, ROOMS_PAGE_SIZE), ROOMS_MAX_PAGE_SIZE);
+      const page = await api.getRooms({ limit });
+      // The remembered room may be further down the list than this page.
+      const wanted = get().activeRoomId;
+      const active = wanted && !page.rooms.some((r) => r.id === wanted) ? await fetchRoom(wanted).catch(() => null) : null;
+      if (gen !== generation) return; // reset or refetched meanwhile
       const { rooms: prev, activeRoomId } = get();
+      const list = active ? [...page.rooms, active] : page.rooms;
       const rooms = Object.fromEntries(list.map((r) => [r.id, keepNewer(r, prev[r.id], trustServer)]));
-      const active =
+      const activeId =
         activeRoomId && rooms[activeRoomId] ? activeRoomId : (sortRooms(rooms)[0]?.id ?? null);
-      writeActive(active);
-      set({ rooms, loaded: true, error: null, activeRoomId: active });
+      writeActive(activeId);
+      set({ rooms, loaded: true, error: null, activeRoomId: activeId, nextCursor: page.nextCursor });
     } catch (e) {
       // A failed refresh (e.g. after a reconnect) keeps the list we already have.
       if (get().loaded && !get().error) console.warn("Refreshing rooms failed:", e);
       else set({ loaded: true, error: (e as Error).message });
     }
+  },
+
+  fetchMore: async () => {
+    const { nextCursor: cursor, loadingMore, loaded } = get();
+    if (!cursor || loadingMore || !loaded) return;
+    const gen = generation;
+    set({ loadingMore: true });
+    try {
+      const page = await api.getRooms({ before: cursor });
+      if (gen !== generation) return; // the list was replaced meanwhile
+      set((s) => {
+        const rooms = { ...s.rooms };
+        for (const r of page.rooms) rooms[r.id] = keepNewer(r, s.rooms[r.id], false);
+        return { rooms, nextCursor: s.nextCursor === cursor ? page.nextCursor : s.nextCursor };
+      });
+    } catch (e) {
+      console.warn("Loading more rooms failed:", e);
+    } finally {
+      if (gen === generation) set({ loadingMore: false });
+    }
+  },
+
+  onActivity: ({ roomId, message }, opts) => {
+    if (!get().rooms[roomId]) {
+      // Not loaded (further down the list): now it's at the top, so fetch it.
+      if (fetchingRooms.has(roomId)) return;
+      fetchingRooms.add(roomId);
+      const gen = generation;
+      void fetchRoom(roomId)
+        .then((room) => {
+          if (!room || gen !== generation) return;
+          set((s) => ({ rooms: { ...s.rooms, [roomId]: keepNewer(room, s.rooms[roomId], false) } }));
+        })
+        .catch((e) => console.warn(`Loading room ${roomId} failed:`, e))
+        .finally(() => fetchingRooms.delete(roomId));
+      return;
+    }
+    get().onMessage(message, opts);
   },
 
   upsert: (room) => set((s) => ({ rooms: { ...s.rooms, [room.id]: room } })),
@@ -159,9 +232,14 @@ export const useRooms = create<RoomsState>((set, get) => ({
 
   onMessage: (message, { fromMe, viewing }) =>
     set((s) => {
-      const room = s.rooms[message.roomId];
+      const found = s.rooms[message.roomId];
+      if (!found) return s;
+      // Any message moves the room up, the same as on the server.
+      const room = { ...found, activity: Math.max(found.activity, message.id) };
       // Messages of blocked users don't show up in the preview or the unread count.
-      if (!room || (!isSystemMessage(message) && isBlocked(message.author.id))) return s;
+      if (!isSystemMessage(message) && isBlocked(message.author.id)) {
+        return room.activity === found.activity ? s : { rooms: { ...s.rooms, [room.id]: room } };
+      }
       const isNewer = !room.lastMessage || message.id > room.lastMessage.id;
       return {
         rooms: {
@@ -233,5 +311,18 @@ export const useRooms = create<RoomsState>((set, get) => ({
       return { rooms };
     }),
 
-  reset: () => set({ rooms: {}, loaded: false, error: null }),
+  reset: () => {
+    generation++;
+    set({ rooms: {}, loaded: false, error: null, nextCursor: null, loadingMore: false });
+  },
 }));
+
+/** The room, or null if the user can't see it (anymore). */
+async function fetchRoom(roomId: number): Promise<Room | null> {
+  try {
+    return await api.getRoom(roomId);
+  } catch (e) {
+    if (e instanceof ApiRequestError && (e.status === 403 || e.status === 404)) return null;
+    throw e;
+  }
+}

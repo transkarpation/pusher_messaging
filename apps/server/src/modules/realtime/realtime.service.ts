@@ -13,7 +13,7 @@ export class RealtimeService {
 
   /**
    * - presence-online: any signed-in user (with their profile as presence info)
-   * - private-user-{id}: only that user
+   * - private-user-{id}: only that user (with their room ids, for the rooms' activity)
    * - private-room-{id}: only members of the room
    *
    * Throws 403 for anything else.
@@ -29,7 +29,7 @@ export class RealtimeService {
     }
 
     const userMatch = USER_CHANNEL_RE.exec(channel);
-    if (userMatch && Number(userMatch[1]) === user.id) return {};
+    if (userMatch && Number(userMatch[1]) === user.id) return { roomActivity: await this.rooms.roomIdsOf(user.id) };
 
     const roomMatch = ROOM_CHANNEL_RE.exec(channel);
     if (roomMatch && (await this.rooms.membership(Number(roomMatch[1]), user.id))) return {};

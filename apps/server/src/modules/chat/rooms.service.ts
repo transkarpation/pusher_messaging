@@ -5,6 +5,7 @@ import {
   type Room,
   type RoomMember,
   type RoomRole,
+  type RoomsPage,
   type RoomUpdatedEvent,
 } from "@pm/shared";
 import { badRequest, forbidden, notFound } from "../../shared/errors.js";
@@ -41,8 +42,14 @@ export class RoomsService {
     return this.rooms.membership(roomId, userId);
   }
 
-  listFor(userId: number): Promise<Room[]> {
-    return this.views.roomsFor(userId);
+  /** A page of the user's rooms, most recently active first. */
+  listFor(userId: number, query: { limit: number; before?: { activity: number; id: number } }): Promise<RoomsPage> {
+    return this.views.roomsPage(userId, query.before, query.limit);
+  }
+
+  /** Ids of the rooms the user belongs to. */
+  roomIdsOf(userId: number): Promise<number[]> {
+    return this.rooms.roomIdsOf(userId);
   }
 
   async get(userId: number, roomId: number): Promise<Room> {

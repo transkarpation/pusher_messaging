@@ -1,4 +1,4 @@
-import { and, asc, count, eq, exists, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { AvatarContentType, RoomRole } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
@@ -19,7 +19,16 @@ export interface RoomRow {
   name: string;
   avatarUrl: string | null;
   createdAt: Date;
+  activity: number;
 }
+
+const roomColumns = {
+  id: rooms.id,
+  name: rooms.name,
+  avatarUrl: roomAvatarUrl,
+  createdAt: rooms.createdAt,
+  activity: rooms.activity,
+};
 
 export interface MemberRow {
   roomId: number;
@@ -33,6 +42,17 @@ export interface RoomsRepository {
   membership(roomId: number, userId: number): Promise<RoomRole | null>;
   /** Rooms the user belongs to, optionally only `onlyIds`. */
   roomsOf(userId: number, onlyIds?: number[]): Promise<RoomRow[]>;
+  /**
+   * Up to `size` of the user's rooms, most recently active first (activity, then id, both
+   * descending), after `before` if given; and whether more follow.
+   */
+  pageOf(
+    userId: number,
+    before: { activity: number; id: number } | undefined,
+    size: number,
+  ): Promise<{ rows: RoomRow[]; hasMore: boolean }>;
+  /** Ids of the rooms the user belongs to. */
+  roomIdsOf(userId: number): Promise<number[]>;
   /** Members of the rooms, in the order they joined. */
   members(roomIds: number[]): Promise<MemberRow[]>;
   memberCounts(roomIds: number[]): Promise<Map<number, number>>;
@@ -76,10 +96,30 @@ export class DrizzleRoomsRepository implements RoomsRepository {
 
   async roomsOf(userId: number, onlyIds?: number[]) {
     return this.db
-      .select({ id: rooms.id, name: rooms.name, avatarUrl: roomAvatarUrl, createdAt: rooms.createdAt })
+      .select(roomColumns)
       .from(rooms)
       .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
       .where(onlyIds ? inArray(rooms.id, onlyIds) : undefined);
+  }
+
+  async pageOf(userId: number, before: { activity: number; id: number } | undefined, size: number) {
+    const rows = await this.db
+      .select(roomColumns)
+      .from(rooms)
+      .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
+      .where(before ? sql`(${rooms.activity}, ${rooms.id}) < (${before.activity}, ${before.id})` : undefined)
+      .orderBy(desc(rooms.activity), desc(rooms.id))
+      // One extra row tells whether there's more beyond this page.
+      .limit(size + 1);
+    return { rows: rows.slice(0, size), hasMore: rows.length > size };
+  }
+
+  async roomIdsOf(userId: number) {
+    const rows = await this.db
+      .select({ roomId: roomMembers.roomId })
+      .from(roomMembers)
+      .where(eq(roomMembers.userId, userId));
+    return rows.map((r) => r.roomId);
   }
 
   async members(roomIds: number[]) {

@@ -342,6 +342,7 @@ button.icon:disabled { opacity: 0.3; }
 
 .room-list { list-style: none; margin: 0; padding: 8px; overflow-y: auto; flex: 1; }
 .room-list .empty { padding: 12px 8px; }
+.room-list-more { min-height: 1px; padding: 8px; text-align: center; }
 .room-item {
   width: 100%;
   display: grid;

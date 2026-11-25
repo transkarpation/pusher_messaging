@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LogOut, ShieldUser } from "lucide-react";
 import { isAdminRole, isSystemMessage, type SessionUser } from "@pm/shared";
 import { ADMIN_PATH, PROFILE_PATH, navigate } from "../lib/router";
@@ -16,9 +16,29 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
   const activeRoomId = useRooms((s) => s.activeRoomId);
   const setActive = useRooms((s) => s.setActive);
   const loaded = useRooms((s) => s.loaded);
+  const hasMore = useRooms((s) => s.nextCursor !== null);
+  const loadingMore = useRooms((s) => s.loadingMore);
   const [creating, setCreating] = useState(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const moreRef = useRef<HTMLLIElement>(null);
 
   const rooms = useMemo(() => sortRooms(roomsById), [roomsById]);
+
+  // Loads the next page when the end of the list scrolls into view. Observing again after each
+  // change keeps loading while the end is still visible (a list shorter than the sidebar).
+  useEffect(() => {
+    const list = listRef.current;
+    const more = moreRef.current;
+    if (!list || !more || !hasMore || loadingMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void useRooms.getState().fetchMore();
+      },
+      { root: list, rootMargin: "200px 0px" },
+    );
+    observer.observe(more);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, rooms.length]);
 
   return (
     <nav className="sidebar">
@@ -66,7 +86,7 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
 
       <Invitations />
 
-      <ul className="room-list">
+      <ul className="room-list" ref={listRef}>
         {loaded && rooms.length === 0 && <li className="muted empty">No rooms yet</li>}
         {rooms.map((room) => {
           const last = room.lastMessage;
@@ -99,6 +119,11 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
             </li>
           );
         })}
+        {hasMore && (
+          <li ref={moreRef} className="muted small room-list-more" aria-live="polite">
+            {loadingMore ? "Loading more rooms…" : ""}
+          </li>
+        )}
       </ul>
 
       {creating && <CreateRoomModal onClose={() => setCreating(false)} />}
