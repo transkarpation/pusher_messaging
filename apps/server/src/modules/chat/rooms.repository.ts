@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, exists, gt, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, exists, gt, inArray, isNotNull, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { AvatarContentType, RoomRole } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import { executorOf, type DbExecutor, type TxScope } from "../../shared/transaction.js";
@@ -25,15 +25,22 @@ export interface RoomRow {
   avatarUrl: string | null;
   createdAt: Date;
   activity: number;
+  /** When the user the rows were read for pinned the room. */
+  pinnedAt: Date | null;
 }
 
+/** A room as one member sees it; needs `room_members` joined for that member. */
 const roomColumns = {
   id: rooms.id,
   name: rooms.name,
   avatarUrl: roomAvatarUrl,
   createdAt: rooms.createdAt,
   activity: roomActivity,
+  pinnedAt: roomMembers.pinnedAt,
 };
+
+/** Pinning failed: the room isn't the user's, or they have MAX_PINNED_ROOMS pinned already. */
+export type PinResult = { ok: true; pinnedAt: Date | null } | { ok: false; reason: "not_member" | "limit" };
 
 export interface MemberRow {
   roomId: number;
@@ -48,9 +55,9 @@ export interface RoomsRepository {
   /** Rooms the user belongs to, optionally only `onlyIds`. */
   roomsOf(userId: number, onlyIds?: number[]): Promise<RoomRow[]>;
   /**
-   * Up to `size` of the user's rooms, most recently active first (last activity, then id, both
-   * descending), after `before` if given; and whether more follow. With `unread`, only rooms
-   * with a message the user hasn't read, by the rule of `MessagesRepository.unreadCounts`.
+   * Up to `size` of the user's rooms that they haven't pinned, most recently active first (last
+   * activity, then id, both descending), after `before` if given; and whether more follow. With
+   * `unread`, only rooms with a message the user hasn't read, by the rule of `MessagesRepository.unreadCounts`.
    */
   pageOf(
     userId: number,
@@ -58,6 +65,13 @@ export interface RoomsRepository {
     size: number,
     unread?: { hiddenAuthorIds: number[] },
   ): Promise<{ rows: RoomRow[]; hasMore: boolean }>;
+  /** The user's pinned rooms, most recently pinned first; with `unread`, only those with unread messages. */
+  pinnedOf(userId: number, unread?: { hiddenAuthorIds: number[] }): Promise<RoomRow[]>;
+  /**
+   * Pins the room to the top of the user's list (again: moves it to the first place), keeping
+   * at most `max` pinned; or unpins it.
+   */
+  setPinned(roomId: number, userId: number, pinned: boolean, max: number): Promise<PinResult>;
   /** Ids of the rooms the user belongs to. */
   roomIdsOf(userId: number): Promise<number[]>;
   /** Ids of the user's rooms with a message they haven't read (the `unread` rule of `pageOf`). */
@@ -126,6 +140,7 @@ export class DrizzleRoomsRepository implements RoomsRepository {
           before
             ? sql`(${rooms.lastActivityAt}, ${rooms.id}) < (timestamptz 'epoch' + ${before.activity} * interval '1 millisecond', ${before.id})`
             : undefined,
+          isNull(roomMembers.pinnedAt),
           unread ? exists(this.unreadMessage(userId, unread.hiddenAuthorIds)) : undefined,
         ),
       )
@@ -133,6 +148,40 @@ export class DrizzleRoomsRepository implements RoomsRepository {
       // One extra row tells whether there's more beyond this page.
       .limit(size + 1);
     return { rows: rows.slice(0, size), hasMore: rows.length > size };
+  }
+
+  async pinnedOf(userId: number, unread?: { hiddenAuthorIds: number[] }) {
+    return this.db
+      .select(roomColumns)
+      .from(rooms)
+      .innerJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
+      .where(
+        and(
+          isNotNull(roomMembers.pinnedAt),
+          unread ? exists(this.unreadMessage(userId, unread.hiddenAuthorIds)) : undefined,
+        ),
+      )
+      .orderBy(desc(roomMembers.pinnedAt), desc(rooms.id));
+  }
+
+  async setPinned(roomId: number, userId: number, pinned: boolean, max: number): Promise<PinResult> {
+    const mine = and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId));
+    if (!pinned) {
+      const [row] = await this.db.update(roomMembers).set({ pinnedAt: null }).where(mine).returning({ roomId: roomMembers.roomId });
+      return row ? { ok: true, pinnedAt: null } : { ok: false, reason: "not_member" };
+    }
+    // Counted in the same statement; pinning an already pinned room just moves it up.
+    const othersPinned = this.db
+      .select({ n: count() })
+      .from(roomMembers)
+      .where(and(eq(roomMembers.userId, userId), isNotNull(roomMembers.pinnedAt), ne(roomMembers.roomId, roomId)));
+    const [row] = await this.db
+      .update(roomMembers)
+      .set({ pinnedAt: sql`now()` })
+      .where(and(mine, sql`(${othersPinned}) < ${max}`))
+      .returning({ pinnedAt: roomMembers.pinnedAt });
+    if (row) return { ok: true, pinnedAt: row.pinnedAt };
+    return { ok: false, reason: (await this.membership(roomId, userId)) ? "limit" : "not_member" };
   }
 
   /** A message in the outer query's room that the user hasn't read (see `MessagesRepository.unreadCounts`). */

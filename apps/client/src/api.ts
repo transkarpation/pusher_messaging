@@ -33,6 +33,7 @@ import {
   type Receipt,
   type Room,
   type RoomsPage,
+  type RoomPinnedEvent,
   type UnreadRoomsResponse,
   type RoomInvite,
   type RoomMember,
@@ -112,6 +113,8 @@ export const api = {
   },
   getRoom: (roomId: number) => request<Room>(room(roomId)),
   getUnreadRoomIds: () => request<UnreadRoomsResponse>("/rooms/unread"),
+  pinRoom: (roomId: number) => request<RoomPinnedEvent>(`${room(roomId)}/pin`, "PUT"),
+  unpinRoom: (roomId: number) => request<RoomPinnedEvent>(`${room(roomId)}/pin`, "DELETE"),
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
   updateRoom: (roomId: number, input: UpdateRoomInput) => request<RoomUpdatedEvent>(room(roomId), "PATCH", input),
   invite: (roomId: number, input: InviteInput) =>

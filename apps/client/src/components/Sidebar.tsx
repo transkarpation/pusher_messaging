@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LogOut, ShieldUser } from "lucide-react";
-import { isAdminRole, isSystemMessage, type SessionUser } from "@pm/shared";
+import { LogOut, Pin, PinOff, ShieldUser } from "lucide-react";
+import { MAX_PINNED_ROOMS, isAdminRole, isSystemMessage, type Room, type SessionUser } from "@pm/shared";
 import { ADMIN_PATH, PROFILE_PATH, navigate } from "../lib/router";
 import { deletedLabel, displayName, messagePreview, systemText } from "../lib/users";
 import { useAuth } from "../store/auth";
@@ -38,6 +38,14 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
     const shown = rooms.filter((r) => !kept.has(r.id));
     if (shown.length > 0) setKept(new Set([...kept, ...shown.map((r) => r.id)]));
   }, [filter, rooms, kept]);
+
+  const togglePin = async (room: Room) => {
+    try {
+      await useRooms.getState().setPinned(room.id, !room.pinnedAt);
+    } catch (e) {
+      alert((e as Error).message || `You can pin up to ${MAX_PINNED_ROOMS} rooms.`);
+    }
+  };
 
   const chooseFilter = (next: RoomFilter) => {
     setKept(new Set());
@@ -140,7 +148,7 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
               : `${last.author.id === me.id ? "You" : displayName(last.author)}: ${messagePreview(last)}`
             : `${room.members.length} member${room.members.length === 1 ? "" : "s"}`;
           return (
-            <li key={room.id}>
+            <li key={room.id} className="room-row">
               <button
                 type="button"
                 className={`room-item ${room.id === activeRoomId && !onProfile ? "active" : ""}`}
@@ -152,11 +160,22 @@ export function Sidebar({ me, onProfile }: { me: SessionUser; onProfile: boolean
                 <RoomAvatar room={room} size={40} />
                 <span className="room-name">{room.name}</span>
                 <span className="room-preview">{preview}</span>
-                {room.unreadCount > 0 && (
+                {room.unreadCount > 0 ? (
                   <span className="badge" aria-label={`${room.unreadCount} unread`}>
                     {room.unreadCount > 99 ? "99+" : room.unreadCount}
                   </span>
+                ) : (
+                  room.pinnedAt && <Pin size={14} className="room-pinned" aria-label="Pinned" />
                 )}
+              </button>
+              <button
+                type="button"
+                className="ghost icon room-pin-toggle"
+                title={room.pinnedAt ? "Unpin" : "Pin to top"}
+                aria-label={room.pinnedAt ? `Unpin ${room.name}` : `Pin ${room.name} to top`}
+                onClick={() => void togglePin(room)}
+              >
+                {room.pinnedAt ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
               </button>
             </li>
           );

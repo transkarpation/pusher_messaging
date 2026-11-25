@@ -44,8 +44,8 @@ export class ChatViews {
   }
 
   /**
-   * A page of the user's rooms, most recently active first (see `RoomsRepository.pageOf`);
-   * with `unreadOnly`, only those with unread messages.
+   * A page of the user's unpinned rooms, most recently active first (see `RoomsRepository.pageOf`),
+   * and on a first page their pinned rooms too; with `unreadOnly`, only those with unread messages.
    */
   async roomsPage(
     userId: number,
@@ -54,10 +54,14 @@ export class ChatViews {
     unreadOnly = false,
   ): Promise<RoomsPage> {
     const unread = unreadOnly ? { hiddenAuthorIds: await this.blocks.blockedIds(userId) } : undefined;
-    const { rows, hasMore } = await this.rooms.pageOf(userId, before, size, unread);
-    const rooms = await this.roomViews(userId, rows);
+    const [{ rows, hasMore }, pinnedRows] = await Promise.all([
+      this.rooms.pageOf(userId, before, size, unread),
+      // Pinned rooms come with the first page only; they're never paged.
+      before ? [] : this.rooms.pinnedOf(userId, unread),
+    ]);
+    const [rooms, pinned] = await Promise.all([this.roomViews(userId, rows), this.roomViews(userId, pinnedRows)]);
     const last = rows[rows.length - 1];
-    return { rooms, nextCursor: hasMore && last ? roomsCursor(last) : null };
+    return { pinned, rooms, nextCursor: hasMore && last ? roomsCursor(last) : null };
   }
 
   /** Ids of the user's rooms with unread messages (messages of people they blocked don't count). */
@@ -105,6 +109,7 @@ export class ChatViews {
         unreadCount: unread.get(r.id) ?? 0,
         myReceipt: { deliveredUpTo: mine?.deliveredUpTo ?? 0, readUpTo: mine?.readUpTo ?? 0 },
         activity: r.activity,
+        pinnedAt: r.pinnedAt?.toISOString() ?? null,
       };
     });
   }

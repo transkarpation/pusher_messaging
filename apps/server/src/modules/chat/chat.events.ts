@@ -11,6 +11,7 @@ import {
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
+  ROOM_PINNED_EVENT,
   ROOM_REMOVED_EVENT,
   ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
@@ -27,6 +28,7 @@ import {
   type RoomInvitesEvent,
   type RoomMember,
   type RoomMembersEvent,
+  type RoomPinnedEvent,
   type RoomRemovedEvent,
   type RoomUpdatedEvent,
   type TypingEvent,
@@ -129,6 +131,11 @@ export class ChatEvents {
         }),
       ),
     );
+  }
+
+  /** The user's other tabs and devices move the room in or out of their pinned rooms. */
+  roomPinned(userId: number, event: RoomPinnedEvent, except?: string) {
+    this.realtime.publish(userChannel(userId), ROOM_PINNED_EVENT, event, except);
   }
 
   roomRemoved(userId: number, roomId: number) {

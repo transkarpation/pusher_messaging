@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  MAX_PINNED_ROOMS,
   ROOMS_MAX_PAGE_SIZE,
   ROOMS_PAGE_SIZE,
   ATTACHMENT_MAX_BYTES,
@@ -220,9 +221,18 @@ const schemas: Record<string, Schema> = {
         "When the room was last active, in epoch milliseconds: the time of its latest message, or of its creation without one. " +
         "Orders the room list (higher: more recent; ties by id).",
     },
+    pinnedAt: {
+      ...nullable({ type: "string", format: "date-time" }),
+      description: "When you pinned the room to the top of your list; null if you didn't. Your own, not other members'",
+    },
   }),
+  RoomPinnedEvent: object({ roomId: { type: "integer" }, pinnedAt: nullable({ type: "string", format: "date-time" }) }),
   RoomsPage: object({
-    rooms: arrayOf(ref("Room")),
+    pinned: {
+      ...arrayOf(ref("Room")),
+      description: "Your pinned rooms, most recently pinned first (with `unread=1`, those with unread messages). First page only; never in `rooms`",
+    },
+    rooms: { ...arrayOf(ref("Room")), description: "Rooms you haven't pinned, most recently active first" },
     nextCursor: { type: ["string", "null"], description: "Pass as `before` for the next page; null on the last one" },
   }),
   RoomUpdatedEvent: object({
@@ -576,6 +586,28 @@ const paths: Record<string, Record<string, Schema>> = {
         403: error("Only the owner can remove members"),
         404: error("Room not found, or that user isn't a member"),
       },
+    },
+  },
+  "/rooms/{roomId}/pin": {
+    put: {
+      tags: [tags.rooms],
+      summary: "Pin the room to the top of your list",
+      description:
+        `Pinned rooms stay above the others, most recently pinned first; pinning a pinned room moves it to the first place. ` +
+        `At most ${MAX_PINNED_ROOMS}. Your other tabs and devices get \`room:pinned\` on your user channel.`,
+      parameters: [roomId],
+      responses: {
+        200: json(ref("RoomPinnedEvent"), "When it was pinned"),
+        409: error(`You have ${MAX_PINNED_ROOMS} pinned rooms already`),
+        ...unauthorized,
+        ...roomNotFound,
+      },
+    },
+    delete: {
+      tags: [tags.rooms],
+      summary: "Unpin the room",
+      parameters: [roomId],
+      responses: { 200: json(ref("RoomPinnedEvent"), "`pinnedAt` is null"), ...unauthorized, ...roomNotFound },
     },
   },
   "/rooms/{roomId}/typing": {

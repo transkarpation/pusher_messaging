@@ -16,6 +16,7 @@ import {
   type RealtimeConfig,
   type Room,
   type RoomsPage,
+  type RoomPinnedEvent,
   type UnreadRoomsResponse,
   type RoomUpdatedEvent,
   type SeedsResponse,
@@ -100,6 +101,9 @@ export const api = {
   },
   /** Every room of the user's with unread messages, loaded or not (for the "Unread" count). */
   getUnreadRoomIds: () => request<UnreadRoomsResponse>("/rooms/unread"),
+  /** Pins the room to the top of the user's list (again: to the first place); 409 past MAX_PINNED_ROOMS. */
+  pinRoom: (roomId: number) => request<RoomPinnedEvent>(`${room(roomId)}/pin`, "PUT"),
+  unpinRoom: (roomId: number) => request<RoomPinnedEvent>(`${room(roomId)}/pin`, "DELETE"),
   /** The new room, with the current user as its owner; invitees join once they accept. */
   createRoom: (input: CreateRoomInput) => request<Room>("/rooms", "POST", input),
   /** Room owner only: renames the room and/or changes its picture; returns its new name and picture. */

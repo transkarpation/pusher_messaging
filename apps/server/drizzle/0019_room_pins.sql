@@ -1,0 +1,1 @@
+ALTER TABLE "room_members" ADD COLUMN "pinned_at" timestamp (3) with time zone;

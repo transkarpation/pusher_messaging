@@ -134,6 +134,13 @@
       "when": 1795588721675,
       "tag": "0018_room_last_activity_at",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795590241475,
+      "tag": "0019_room_pins",
+      "breakpoints": true
     }
   ]
 }

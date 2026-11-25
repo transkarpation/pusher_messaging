@@ -15,6 +15,7 @@ import {
   ROOM_ADDED_EVENT,
   ROOM_INVITES_EVENT,
   ROOM_MEMBERS_EVENT,
+  ROOM_PINNED_EVENT,
   ROOM_REMOVED_EVENT,
   ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
@@ -33,6 +34,7 @@ import {
   type RoomActivityEvent,
   type RoomInvitesEvent,
   type RoomMembersEvent,
+  type RoomPinnedEvent,
   type RoomRemovedEvent,
   type RoomUpdatedEvent,
   type TypingEvent,
@@ -158,6 +160,7 @@ export function useRealtime(me: User) {
             rooms.onActivity(e, { fromMe: e.message.author.id === me.id, viewing });
           },
           [ROOM_ADDED_EVENT]: (room: Room) => rooms.upsert(room),
+          [ROOM_PINNED_EVENT]: (e: RoomPinnedEvent) => rooms.applyPin(e),
           [ROOM_REMOVED_EVENT]: (e: RoomRemovedEvent) => rooms.remove(e.roomId),
           [INVITATION_ADDED_EVENT]: (i: Invitation) => invitations.add(i),
           [INVITATION_REMOVED_EVENT]: (e: InvitationRemovedEvent) => invitations.remove(e.roomId),

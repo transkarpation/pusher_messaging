@@ -1,14 +1,16 @@
 import {
   AVATAR_MAX_BYTES,
+  MAX_PINNED_ROOMS,
   type CreateRoomInput,
   type MessageKind,
   type Room,
   type RoomMember,
   type RoomRole,
+  type RoomPinnedEvent,
   type RoomsPage,
   type RoomUpdatedEvent,
 } from "@pm/shared";
-import { badRequest, forbidden, notFound } from "../../shared/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../../shared/errors.js";
 import { sniffImageType } from "../../shared/images.js";
 import type { Actor } from "../../shared/http.js";
 import type { Transactor } from "../../shared/transaction.js";
@@ -48,6 +50,22 @@ export class RoomsService {
     query: { limit: number; before?: { activity: number; id: number }; unread: boolean },
   ): Promise<RoomsPage> {
     return this.views.roomsPage(userId, query.before, query.limit, query.unread);
+  }
+
+  /**
+   * Pins the room to the top of the actor's room list (pinning it again moves it to the first
+   * place), or unpins it. At most MAX_PINNED_ROOMS; the actor's other tabs and devices are told.
+   */
+  async setPinned(actor: Actor, roomId: number, pinned: boolean): Promise<RoomPinnedEvent> {
+    const result = await this.rooms.setPinned(roomId, actor.user.id, pinned, MAX_PINNED_ROOMS);
+    if (!result.ok) {
+      throw result.reason === "limit"
+        ? conflict(`You can pin up to ${MAX_PINNED_ROOMS} rooms. Unpin one first.`)
+        : notFound("Room not found");
+    }
+    const event: RoomPinnedEvent = { roomId, pinnedAt: result.pinnedAt?.toISOString() ?? null };
+    this.events.roomPinned(actor.user.id, event, actor.socketId);
+    return event;
   }
 
   /** Ids of the user's rooms with unread messages. */

@@ -7,6 +7,7 @@ import {
   type Receipt,
   type Room,
   type RoomActivityEvent,
+  type RoomPinnedEvent,
   type RoomInvite,
   type RoomMember,
   type RoomUpdatedEvent,
@@ -36,9 +37,16 @@ function writeActive(id: number | null) {
   }
 }
 
-/** Most recently active rooms first: the order the server pages them in. */
+/** Pinned rooms first (most recently pinned first), then the rest, most recently active first. */
 export function sortRooms(rooms: Record<number, Room>): Room[] {
-  return Object.values(rooms).sort((a, b) => b.activity - a.activity || b.id - a.id);
+  return Object.values(rooms).sort((a, b) => {
+    if (a.pinnedAt || b.pinnedAt) {
+      if (!a.pinnedAt) return 1;
+      if (!b.pinnedAt) return -1;
+      return b.pinnedAt.localeCompare(a.pinnedAt) || b.id - a.id;
+    }
+    return b.activity - a.activity || b.id - a.id;
+  });
 }
 
 /** Which rooms the room list shows: all of them, or only those with unread messages. */
@@ -54,15 +62,19 @@ export interface RoomList {
 
 const NOT_LOADED: RoomList = { loaded: false, cursor: null };
 
-/** Whether `room` lies within what `list` has paged through (rooms past its cursor aren't loaded in order yet). */
+/**
+ * Whether `room` lies within what `list` has paged through (rooms past its cursor aren't loaded
+ * in order yet). Pinned rooms aren't paged: they all come with the first page.
+ */
 function withinList(room: Room, list: RoomList): boolean {
+  if (room.pinnedAt) return list.loaded;
   if (!list.cursor) return list.loaded;
   const [activity, id] = list.cursor.split(".").map(Number) as [number, number];
   return room.activity > activity || (room.activity === activity && room.id >= id);
 }
 
 /**
- * The rooms the list shows for `filter`, most recently active first: the loaded rooms up to where
+ * The rooms the list shows for `filter`, pinned ones first, then most recently active first: the loaded rooms up to where
  * that filter's paging got (further ones would show up out of order), and for "unread" only rooms
  * with unread messages, plus `kept` (rooms read while the filter is on stay until it's switched off).
  */
@@ -156,6 +168,10 @@ interface RoomsState {
   fetchMore: () => Promise<void>;
   /** Switches the filter, loading its first page the first time. */
   setFilter: (filter: RoomFilter) => void;
+  /** Pins the room to the top of the list (again: to the first place), or unpins it. Throws with the server's reason. */
+  setPinned: (roomId: number, pinned: boolean) => Promise<void>;
+  /** The user pinned or unpinned a room here or elsewhere (ROOM_PINNED_EVENT). */
+  applyPin: (event: RoomPinnedEvent) => void;
   /**
    * A new message in one of the user's rooms (ROOM_ACTIVITY_EVENT): moves the room up and updates
    * its preview and unread count, or fetches the room if it isn't loaded.
@@ -197,7 +213,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
       const { rooms: current, lists, filter } = get();
       const withUnread = lists.unread.loaded || filter === "unread";
       const limitFor = (filter: RoomFilter) => {
-        const shown = visibleRooms(current, lists[filter], filter).length;
+        const shown = visibleRooms(current, lists[filter], filter).filter((r) => !r.pinnedAt).length;
         return Math.min(Math.max(shown, ROOMS_PAGE_SIZE), ROOMS_MAX_PAGE_SIZE);
       };
       const [page, unreadPage, unreadIds] = await Promise.all([
@@ -206,7 +222,7 @@ export const useRooms = create<RoomsState>((set, get) => ({
         // Only for the count; a failure just leaves it to the loaded rooms.
         api.getUnreadRoomIds().catch(() => null),
       ]);
-      const fetched = [...page.rooms, ...(unreadPage?.rooms ?? [])];
+      const fetched = [...page.pinned, ...page.rooms, ...(unreadPage ? [...unreadPage.pinned, ...unreadPage.rooms] : [])];
       // The remembered room may be further down the list than these pages.
       const wanted = get().activeRoomId;
       const active = wanted && !fetched.some((r) => r.id === wanted) ? await fetchRoom(wanted).catch(() => null) : null;
@@ -265,6 +281,17 @@ export const useRooms = create<RoomsState>((set, get) => ({
     }
     get().onMessage(message, opts);
   },
+
+  setPinned: async (roomId, pinned) => {
+    const event = pinned ? await api.pinRoom(roomId) : await api.unpinRoom(roomId);
+    get().applyPin(event);
+  },
+
+  applyPin: ({ roomId, pinnedAt }) =>
+    set((s) => {
+      const room = s.rooms[roomId];
+      return room && room.pinnedAt !== pinnedAt ? { rooms: { ...s.rooms, [roomId]: { ...room, pinnedAt } } } : s;
+    }),
 
   upsert: (room) => set((s) => ({ rooms: { ...s.rooms, [room.id]: room } })),
 
@@ -409,7 +436,7 @@ async function loadPage(filter: RoomFilter, cursor: string | undefined) {
       if (s.lists[filter].loaded && s.lists[filter].cursor !== (cursor ?? null)) return s;
       if (!cursor && s.lists[filter].loaded) return s;
       const rooms = { ...s.rooms };
-      for (const r of page.rooms) rooms[r.id] = keepNewer(r, s.rooms[r.id], false);
+      for (const r of [...page.pinned, ...page.rooms]) rooms[r.id] = keepNewer(r, s.rooms[r.id], false);
       return { rooms, lists: { ...s.lists, [filter]: { loaded: true, cursor: page.nextCursor } } };
     });
   } catch (e) {

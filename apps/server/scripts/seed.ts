@@ -9,7 +9,7 @@
  * deleting them also deletes the rooms they created.
  */
 import { deflateSync } from "node:zlib";
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
 import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, demoRoleOf, type DemoUsername as Username } from "../src/modules/seeds/demo.js";
@@ -192,6 +192,8 @@ const MANY = {
   rooms: 100,
   /** Odd-numbered rooms are shared with taras, even ones with dmytro, every 5th with both. */
   partners: ["taras", "dmytro"] as Username[],
+  /** Old rooms roman pinned to the top of his list, first pinned first (so the last one is on top). */
+  pinned: [80, 45],
   topics: ["Бекенд", "Дизайн", "Маркетинг", "Мобілка", "Аналітика", "Інфраструктура", "Підтримка", "Документація", "Тестування", "Найм"],
 };
 
@@ -468,24 +470,28 @@ async function seed() {
     );
     if (avatars.length) await tx.insert(schema.userAvatars).values(avatars);
 
-    const roomIds: number[] = [];
-    roomIds.push(
-      await insertRoom(
-        tx,
-        ids,
-        { ...GENERAL, createdAt: addMinutes(dateAt(GENERAL.days, "09:00"), -30) },
-        generalMessages(),
-        { unread: { olena: 12, andriy: 5 } },
-      ),
+    await insertRoom(
+      tx,
+      ids,
+      { ...GENERAL, createdAt: addMinutes(dateAt(GENERAL.days, "09:00"), -30) },
+      generalMessages(),
+      { unread: { olena: 12, andriy: 5 } },
     );
     for (const spec of ROOMS) {
       const createdAt = dateAt(spec.createdDaysAgo, "08:00");
-      roomIds.push(await insertRoom(tx, ids, { ...spec, createdAt }, scriptToMessages(spec), spec));
+      await insertRoom(tx, ids, { ...spec, createdAt }, scriptToMessages(spec), spec);
     }
     const rand = mulberry32(7);
     for (let n = 1; n <= MANY.rooms; n++) {
       const { spec, messages, unread } = manyRoom(n, rand);
-      roomIds.push(await insertRoom(tx, ids, spec, messages, { unread }));
+      const roomId = await insertRoom(tx, ids, spec, messages, { unread });
+      const pin = MANY.pinned.indexOf(n);
+      if (pin >= 0) {
+        await tx
+          .update(schema.roomMembers)
+          .set({ pinnedAt: addMinutes(new Date(), pin - MANY.pinned.length) })
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, ids[MANY.user])));
+      }
     }
 
     // Maksym blocked Taras: Taras's messages are hidden from Maksym in "Загальний".

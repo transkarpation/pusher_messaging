@@ -380,6 +380,20 @@ button.icon:disabled { opacity: 0.3; }
   padding: 10px 12px;
 }
 .room-item:hover { background: var(--hover); }
+.room-row { position: relative; }
+.room-pinned { grid-column: 3; grid-row: 1 / span 2; align-self: center; color: var(--muted); }
+/* Pin / unpin: shown on hover or keyboard focus, in the top right corner of the row. */
+button.room-pin-toggle {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 3px;
+  border-radius: 6px;
+  opacity: 0;
+}
+.room-row:hover .room-pin-toggle, .room-pin-toggle:focus-visible { opacity: 1; }
+.room-row:hover .room-pinned { visibility: hidden; }
+@media (hover: none) { button.room-pin-toggle { opacity: 1; } }
 .room-item.active { background: var(--own); }
 .room-item .room-avatar { grid-row: 1 / span 2; }
 .room-item .room-name { grid-column: 2; }

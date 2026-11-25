@@ -30,7 +30,7 @@ export const DEMO_USERS = [
   {
     username: "roman",
     name: "Роман Гнатюк",
-    note: "In 100 «Проєкт» rooms with taras or dmytro: the room list loads 10 at a time as you scroll. Post in one of the old ones as taras or dmytro to see it jump to the top",
+    note: "In 100 «Проєкт» rooms with taras or dmytro: the room list loads 10 at a time as you scroll. Post in one of the old ones as taras or dmytro to see it jump to the top. Pinned «Проєкт 045» and «Проєкт 080» to the top",
   },
 ] as const;
 

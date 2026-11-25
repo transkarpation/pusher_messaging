@@ -489,7 +489,15 @@ export interface Room {
    * broken by room id, higher first.
    */
   activity: number;
+  /**
+   * When the current user pinned the room, or null. Pinned rooms stay at the top of the user's
+   * room list, most recently pinned first, and aren't part of its pages (see `RoomsPage.pinned`).
+   */
+  pinnedAt: string | null;
 }
+
+/** How many rooms one user can pin (as in Telegram without Premium). */
+export const MAX_PINNED_ROOMS = 5;
 
 /** Rooms per page of GET /rooms when `limit` isn't given. */
 export const ROOMS_PAGE_SIZE = 10;
@@ -532,6 +540,12 @@ export interface UnreadRoomsResponse {
 }
 
 export interface RoomsPage {
+  /**
+   * The user's pinned rooms, most recently pinned first (with `unread=1`, only those with unread
+   * messages). Only on a first page (no `before`); empty on the others. Never in `rooms`.
+   */
+  pinned: Room[];
+  /** Rooms that aren't pinned, most recently active first. */
   rooms: Room[];
   /** Pass as `before` for the next page; null when this was the last one. */
   nextCursor: string | null;
@@ -645,6 +659,8 @@ export const ROOM_ADDED_EVENT = "room:added";
 export const ROOM_REMOVED_EVENT = "room:removed";
 export const INVITATION_ADDED_EVENT = "invitation:added";
 export const INVITATION_REMOVED_EVENT = "invitation:removed";
+/** Carries `RoomPinnedEvent`: the user pinned or unpinned a room (for their other tabs and devices). */
+export const ROOM_PINNED_EVENT = "room:pinned";
 /** Carries `BlocksEvent`: the user's whole block list after a change (for their other tabs). */
 export const BLOCKS_UPDATED_EVENT = "blocks:updated";
 /** Carries `PollVotedEvent`: the user's own vote changed (for their other tabs). */
@@ -672,6 +688,12 @@ export interface RoomMembersEvent {
 export interface RoomActivityEvent {
   roomId: number;
   message: Message;
+}
+
+/** The current user's pin of a room: when they pinned it, or null after unpinning. */
+export interface RoomPinnedEvent {
+  roomId: number;
+  pinnedAt: string | null;
 }
 
 export interface RoomRemovedEvent {

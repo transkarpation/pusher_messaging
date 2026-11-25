@@ -105,6 +105,8 @@ export const roomMembers = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     role: roomRole("role").notNull().default("member"),
     joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When this member pinned the room to the top of their room list (null: not pinned). */
+    pinnedAt: timestamp("pinned_at", { withTimezone: true, precision: 3 }),
   },
   (t) => [primaryKey({ columns: [t.roomId, t.userId] }), index("room_members_user_id_idx").on(t.userId)],
 );

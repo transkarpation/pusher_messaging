@@ -126,6 +126,15 @@ export function roomsRoutes(
     res.json({ members: await rooms.removeMember(actorOf(req), req.room!, userId) });
   });
 
+  /** Pins the room to the top of the caller's own room list (again: to the first place). */
+  room.put("/pin", async (req, res) => {
+    res.json(await rooms.setPinned(actorOf(req), req.room!.id, true));
+  });
+
+  room.delete("/pin", async (req, res) => {
+    res.json(await rooms.setPinned(actorOf(req), req.room!.id, false));
+  });
+
   room.post("/typing", (req, res) => {
     const { typing } = parse(typingSchema, req.body);
     rooms.typing(actorOf(req), req.room!.id, typing);

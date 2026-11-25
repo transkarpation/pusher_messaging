@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Alert, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import {
   MESSAGE_DELETED_EVENT,
@@ -10,6 +10,7 @@ import {
   ROOM_ACTIVITY_EVENT,
   ROOM_ADDED_EVENT,
   ROOM_MEMBERS_EVENT,
+  ROOM_PINNED_EVENT,
   ROOM_REMOVED_EVENT,
   ROOM_UPDATED_EVENT,
   roomChannel,
@@ -48,6 +49,8 @@ export default function RoomsScreen() {
   const me = useSession((s) => s.user)!;
   const signOut = useSession((s) => s.signOut);
   const [rooms, setRooms] = useState<Room[] | null>(null);
+  /** Pinned rooms, most recently pinned first: always on top, and not part of the pages. */
+  const [pinned, setPinned] = useState<Room[]>([]);
   const [filter, setFilter] = useState<RoomFilter>("all");
   /** Rooms with unread messages, all of them (not only the loaded ones), for the "Unread" badge. */
   const [unreadRooms, setUnreadRooms] = useState(0);
@@ -97,8 +100,9 @@ export default function RoomsScreen() {
       const fetched = new Set(page.rooms.map((r) => r.id));
       const kept = unread ? (roomsRef.current ?? []).filter((r) => !fetched.has(r.id)).map((r) => ({ ...r, unreadCount: 0 })) : [];
       setRooms(kept.length > 0 ? [...page.rooms, ...kept].sort(byActivity) : page.rooms);
+      setPinned(page.pinned);
       setNextCursor(page.nextCursor);
-      reportDelivered(page.rooms);
+      reportDelivered([...page.pinned, ...page.rooms]);
       setError(null);
     } catch (e) {
       if (gen === generation.current) setError((e as Error).message);
@@ -126,12 +130,30 @@ export default function RoomsScreen() {
     }
   }, [nextCursor, loadingMore]);
 
+  /** Long press on a room, as in Telegram: pin it to the top or unpin it. */
+  const askToPin = (room: Room) =>
+    Alert.alert(room.name, undefined, [
+      {
+        text: room.pinnedAt ? "Unpin" : "Pin to top",
+        onPress: async () => {
+          try {
+            await (room.pinnedAt ? api.unpinRoom(room.id) : api.pinRoom(room.id));
+            void load();
+          } catch (e) {
+            Alert.alert("Can't pin the room", (e as Error).message);
+          }
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+
   /** Shows the other filter's list from its first page. */
   const chooseFilter = (next: RoomFilter) => {
     if (next === filter) return;
     filterRef.current = next;
     setFilter(next);
     setRooms(null);
+    setPinned([]);
     setNextCursor(null);
     loadedCount.current = 0;
     roomsRef.current = null;
@@ -163,7 +185,7 @@ export default function RoomsScreen() {
   // Unread counts and last messages, live: the server counts them, so any change in a room reloads the list.
   // New messages in any room arrive on the user channel (ROOM_ACTIVITY_EVENT), loaded or not; the
   // channels of the loaded rooms report the rest (edits, deletions, members, renames, receipts).
-  const roomIds = rooms?.map((r) => r.id).join(",") ?? "";
+  const roomIds = [...pinned, ...(rooms ?? [])].map((r) => r.id).join(",");
   useEffect(() => {
     const stops: (() => void)[] = [];
     let stopped = false;
@@ -185,6 +207,7 @@ export default function RoomsScreen() {
           listen(conn, userChannel(me.id), {
             [ROOM_ACTIVITY_EVENT]: scheduleReload,
             [ROOM_ADDED_EVENT]: scheduleReload,
+            [ROOM_PINNED_EVENT]: scheduleReload, // on another device of mine
             [ROOM_REMOVED_EVENT]: scheduleReload,
           }),
         );
@@ -237,7 +260,7 @@ export default function RoomsScreen() {
           ))}
         </View>
         <FlatList
-          data={rooms ?? []}
+          data={rooms ? [...pinned, ...rooms] : []}
           keyExtractor={(r) => String(r.id)}
           refreshControl={
             <RefreshControl
@@ -264,6 +287,7 @@ export default function RoomsScreen() {
             <Pressable
               style={({ pressed }) => [styles.row, pressed && styles.pressed]}
               onPress={() => openRoom(item)}
+              onLongPress={() => askToPin(item)}
             >
               <RoomAvatar room={item} />
               <View style={styles.rowText}>
@@ -274,10 +298,16 @@ export default function RoomsScreen() {
                   {item.lastMessage ? preview(item.lastMessage, me.id) : `${item.members.length} members`}
                 </Text>
               </View>
-              {item.unreadCount > 0 && (
+              {item.unreadCount > 0 ? (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</Text>
                 </View>
+              ) : (
+                item.pinnedAt && (
+                  <Text style={styles.pinned} accessibilityLabel="Pinned">
+                    📌
+                  </Text>
+                )
               )}
             </Pressable>
           )}
@@ -353,6 +383,7 @@ const makeStyles = (colors: Colors) =>
   rowText: { flex: 1, gap: 2 },
   name: { fontSize: 16, fontWeight: "600", color: colors.text },
   preview: { color: colors.muted },
+  pinned: { fontSize: 14, opacity: 0.6 },
   badge: { minWidth: 22, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 11, backgroundColor: colors.accent },
   badgeText: { color: colors.onAccent, fontSize: 12, fontWeight: "600", textAlign: "center" },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
