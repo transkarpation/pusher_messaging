@@ -113,7 +113,7 @@ export function SeedsPage() {
                   <CopyButton id={`${a.username}:p`} text={a.password} />
                 </dd>
                 <dt>Rooms</dt>
-                <dd className="seed-rooms">{a.rooms.length ? a.rooms.join(", ") : <span className="muted">none</span>}</dd>
+                <dd className="seed-rooms">{a.rooms.length ? roomList(a.rooms) : <span className="muted">none</span>}</dd>
               </dl>
               <button
                 type="button"
@@ -128,4 +128,11 @@ export function SeedsPage() {
       )}
     </main>
   );
+}
+
+/** Room names to show for an account; past a dozen, the rest only as a count. */
+const SHOWN_ROOMS = 12;
+function roomList(rooms: string[]): string {
+  if (rooms.length <= SHOWN_ROOMS) return rooms.join(", ");
+  return `${rooms.slice(0, SHOWN_ROOMS).join(", ")} and ${rooms.length - SHOWN_ROOMS} more`;
 }

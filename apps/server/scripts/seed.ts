@@ -9,7 +9,7 @@
  * deleting them also deletes the rooms they created.
  */
 import { deflateSync } from "node:zlib";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { MESSAGES_PAGE_SIZE } from "@pm/shared";
 import { db, schema } from "../src/db/index.js";
 import { DEMO_PASSWORD as PASSWORD, DEMO_USERNAMES, DEMO_USERS as USERS, demoRoleOf, type DemoUsername as Username } from "../src/modules/seeds/demo.js";
@@ -186,6 +186,40 @@ const PHRASES = [
   "Нова версія задеплоєна 🚀",
 ];
 
+/** Many small rooms for one user, to page through the room list (`roman`, see demo.ts). */
+const MANY = {
+  user: "roman" as Username,
+  rooms: 100,
+  /** Odd-numbered rooms are shared with taras, even ones with dmytro, every 5th with both. */
+  partners: ["taras", "dmytro"] as Username[],
+  topics: ["Бекенд", "Дизайн", "Маркетинг", "Мобілка", "Аналітика", "Інфраструктура", "Підтримка", "Документація", "Тестування", "Найм"],
+};
+
+/** Room `n` (1-based) of MANY: a few messages ending `n * 13` hours ago, so room 1 is the most recent. */
+function manyRoom(n: number, rand: () => number) {
+  const partner = MANY.partners[(n + 1) % 2]!;
+  const members: Username[] = n % 5 === 0 ? [MANY.user, ...MANY.partners] : [MANY.user, partner];
+  const lastAt = new Date(Date.now() - n * 13 * 60 * 60_000);
+  const count = 2 + Math.floor(rand() * 4);
+  const messages: ScriptRow[] = Array.from({ length: count }, (_, i) => ({
+    author: members[(i + n) % members.length]!,
+    kind: "text" as const,
+    text: PHRASES[Math.floor(rand() * PHRASES.length)]!,
+    createdAt: addMinutes(lastAt, -(count - 1 - i) * 7),
+  }));
+  return {
+    spec: {
+      name: `Проєкт ${String(n).padStart(3, "0")} · ${MANY.topics[n % MANY.topics.length]}`,
+      owner: n % 3 === 0 ? MANY.user : partner,
+      members,
+      createdAt: addMinutes(lastAt, -24 * 60),
+    },
+    messages,
+    // Every 6th room has a few messages roman hasn't read, so unread badges show up further down too.
+    unread: n % 6 === 0 ? { [MANY.user]: Math.min(2, count) } : undefined,
+  };
+}
+
 /** Deterministic PRNG, so every seed produces the same conversation. */
 function mulberry32(seed: number) {
   return () => {
@@ -285,7 +319,7 @@ async function insertRoom(
   spec: { name: string; owner: Username; members: Username[]; createdAt: Date },
   messages: ScriptRow[],
   opts: { invites?: [Username, Username][]; unread?: Partial<Record<Username, number>> } = {},
-) {
+): Promise<number> {
   const [room] = await tx
     .insert(schema.rooms)
     .values({ name: spec.name, createdBy: ids[spec.owner], createdAt: spec.createdAt })
@@ -336,6 +370,28 @@ async function insertRoom(
       opts.invites.map(([user, by]) => ({ roomId, userId: ids[user], invitedBy: ids[by] })),
     );
   }
+  return roomId;
+}
+
+/**
+ * Orders the seeded rooms in the room list by their latest message (or creation, without one).
+ * Messages are inserted room by room, so their ids don't follow their timestamps across rooms;
+ * each room's `activity` is redrawn from the message id sequence in time order instead.
+ */
+async function orderRooms(tx: Tx, roomIds: number[]) {
+  await tx.execute(sql`
+    update rooms set activity = ordered.activity
+    from (
+      select id, nextval('messages_id_seq') as activity
+      from (
+        select r.id, coalesce(max(m.created_at), r.created_at) as last_at
+        from rooms r left join messages m on m.room_id = r.id
+        where r.id in ${roomIds}
+        group by r.id
+        order by last_at, r.id
+      ) by_time
+    ) ordered
+    where rooms.id = ordered.id`);
 }
 
 async function insertPoll(tx: Tx, ids: Record<Username, number>, messageId: number, author: Username, poll: DemoPoll, at: Date) {
@@ -427,17 +483,26 @@ async function seed() {
     );
     if (avatars.length) await tx.insert(schema.userAvatars).values(avatars);
 
-    await insertRoom(
-      tx,
-      ids,
-      { ...GENERAL, createdAt: addMinutes(dateAt(GENERAL.days, "09:00"), -30) },
-      generalMessages(),
-      { unread: { olena: 12, andriy: 5 } },
+    const roomIds: number[] = [];
+    roomIds.push(
+      await insertRoom(
+        tx,
+        ids,
+        { ...GENERAL, createdAt: addMinutes(dateAt(GENERAL.days, "09:00"), -30) },
+        generalMessages(),
+        { unread: { olena: 12, andriy: 5 } },
+      ),
     );
     for (const spec of ROOMS) {
       const createdAt = dateAt(spec.createdDaysAgo, "08:00");
-      await insertRoom(tx, ids, { ...spec, createdAt }, scriptToMessages(spec), spec);
+      roomIds.push(await insertRoom(tx, ids, { ...spec, createdAt }, scriptToMessages(spec), spec));
     }
+    const rand = mulberry32(7);
+    for (let n = 1; n <= MANY.rooms; n++) {
+      const { spec, messages, unread } = manyRoom(n, rand);
+      roomIds.push(await insertRoom(tx, ids, spec, messages, { unread }));
+    }
+    await orderRooms(tx, roomIds);
 
     // Maksym blocked Taras: Taras's messages are hidden from Maksym in "Загальний".
     await tx.insert(schema.userBlocks).values({ blockerId: ids.maksym, blockedId: ids.taras });
@@ -478,10 +543,11 @@ async function main() {
       password: PASSWORD,
       role: demoRoleOf(u),
       name: u.name ?? "(not set)",
-      rooms: [GENERAL, ...ROOMS]
-        .filter((r) => finalMembers(r).includes(u.username))
-        .map((r) => r.name)
-        .join(", "),
+      rooms: [
+        ...[GENERAL, ...ROOMS].filter((r) => finalMembers(r).includes(u.username)).map((r) => r.name),
+        ...(u.username === MANY.user ? [`${MANY.rooms} «Проєкт» rooms`] : []),
+        ...(MANY.partners.includes(u.username) ? [`${MANY.rooms / 2 + MANY.rooms / 10} of roman's «Проєкт» rooms`] : []),
+      ].join(", "),
     })),
   );
   console.log(
