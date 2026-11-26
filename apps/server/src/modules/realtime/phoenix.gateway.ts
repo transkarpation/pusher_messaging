@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { RealtimePublisher } from "./realtime.publisher.js";
+import type { PresenceSource, RealtimePublisher } from "./realtime.publisher.js";
 
 export interface PhoenixConfig {
   /** Where this server reaches the Phoenix server, e.g. http://localhost:4000. */
@@ -17,10 +17,11 @@ const PUBLISH_TIMEOUT_MS = 5_000;
 /**
  * Realtime through the Phoenix server in apps/realtime-server-phoenix:
  * - publishes with `POST {url}/api/broadcast`, authenticated with the shared secret;
+ * - asks who is connected with `POST {url}/api/presence/online`;
  * - issues the tokens clients connect with, which Phoenix verifies on its own;
  * - recognizes Phoenix's calls to `POST /api/realtime/phoenix/authorize` by the same secret.
  */
-export class PhoenixGateway implements RealtimePublisher {
+export class PhoenixGateway implements RealtimePublisher, PresenceSource {
   constructor(readonly config: PhoenixConfig) {}
 
   publish(channel: string, event: string, data: unknown, exceptSocketId?: string) {
@@ -34,6 +35,19 @@ export class PhoenixGateway implements RealtimePublisher {
         if (!res.ok) console.error(`Phoenix broadcast "${event}" on ${channel} failed: HTTP ${res.status}`);
       })
       .catch((err) => console.error(`Phoenix broadcast "${event}" on ${channel} failed:`, err));
+  }
+
+  async onlineUserIds(userIds: number[]): Promise<Set<number>> {
+    if (userIds.length === 0) return new Set();
+    const res = await fetch(`${this.config.url}/api/presence/online`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.config.secret}` },
+      body: JSON.stringify({ userIds }),
+      signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Phoenix presence lookup failed: HTTP ${res.status}`);
+    const { online } = (await res.json()) as { online: number[] };
+    return new Set(online);
   }
 
   /**

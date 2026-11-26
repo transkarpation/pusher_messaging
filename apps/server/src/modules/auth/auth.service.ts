@@ -42,10 +42,15 @@ export class AuthService {
     if (token) await this.sessions.delete(hashToken(token));
   }
 
-  /** The user a session token belongs to (with their current role), or null if it's unknown or expired. */
-  async authenticate(token: string): Promise<SessionUser | null> {
-    const userId = await this.sessions.findUserId(hashToken(token), new Date());
-    return userId === null ? null : this.users.getSessionUser(userId);
+  /**
+   * The user a session token belongs to (with their current role) and the session's id, or null
+   * if it's unknown or expired.
+   */
+  async authenticate(token: string): Promise<{ user: SessionUser; sessionId: string } | null> {
+    const sessionId = hashToken(token);
+    const userId = await this.sessions.findUserId(sessionId, new Date());
+    const user = userId === null ? null : await this.users.getSessionUser(userId);
+    return user && { user, sessionId };
   }
 
   /** Ends every session of a user (e.g. after an admin set a new password). */

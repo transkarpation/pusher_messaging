@@ -28,6 +28,9 @@ import {
   type PollCommentInput,
   type PollOptionInput,
   type PollVoteInput,
+  type PrivacySettings,
+  type PushConfig,
+  type RegisterPushInput,
   type RealtimeConfig,
   type MessagesResponse,
   type Receipt,
@@ -86,6 +89,14 @@ export const api = {
   updateProfile: (p: UpdateProfileInput) => request<{ user: SessionUser }>("/auth/me", "PATCH", p),
   uploadAvatar: (image: Blob) => request<{ user: SessionUser }>("/auth/me/avatar", "PUT", image),
   removeAvatar: () => request<{ user: SessionUser }>("/auth/me/avatar", "DELETE"),
+
+  getPrivacy: () => request<PrivacySettings>("/auth/me/privacy"),
+  updatePrivacy: (settings: PrivacySettings) => request<PrivacySettings>("/auth/me/privacy", "PUT", settings),
+
+  /** Push notifications (see lib/push.ts). */
+  getPushConfig: () => request<PushConfig>("/push/config"),
+  registerPush: (input: RegisterPushInput) => request<void>("/push/subscriptions", "POST", input),
+  unregisterPush: (endpoint: string) => request<void>("/push/subscriptions", "DELETE", { endpoint }),
 
   /** Administration (admins and superadmins): accounts with a role below the caller's. */
   adminListUsers: (query: AdminUsersQuery) =>

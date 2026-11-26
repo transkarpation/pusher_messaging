@@ -1,10 +1,16 @@
 import { ONLINE_CHANNEL, ROOM_CHANNEL_RE, USER_CHANNEL_RE, type User } from "@pm/shared";
+import { z } from "zod";
 import { badRequest, forbidden } from "../../shared/errors.js";
+import { parse } from "../../shared/http.js";
 import type { RoomsService } from "../chat/index.js";
 import type { UsersService } from "../users/index.js";
 import type { ChannelGrant } from "./realtime.publisher.js";
 
-/** Decides who may subscribe to which channel. */
+const userIds = z.array(z.number().int().positive()).max(100_000).default([]);
+/** Body of POST /api/realtime/phoenix/seen. */
+const seenSchema = z.object({ online: userIds, left: userIds });
+
+/** Decides who may subscribe to which channel, and records when people were last connected. */
 export class RealtimeService {
   constructor(
     private readonly rooms: RoomsService,
@@ -35,6 +41,15 @@ export class RealtimeService {
     if (roomMatch && (await this.rooms.membership(Number(roomMatch[1]), user.id))) return {};
 
     throw forbidden("Forbidden channel");
+  }
+
+  /**
+   * The Phoenix server reports who is connected (`online`, about once a minute) and whose
+   * last connection just closed (`left`).
+   */
+  async recordSeen(body: unknown): Promise<void> {
+    const { online, left } = parse(seenSchema, body);
+    await this.users.markSeen(online, left);
   }
 
   /** `authorize` for a user known only by id (the Phoenix server asks this way). */

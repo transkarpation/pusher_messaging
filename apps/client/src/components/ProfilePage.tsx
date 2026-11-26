@@ -1,13 +1,15 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { updateProfileSchema, type User } from "@pm/shared";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { updateProfileSchema, type LastSeenVisibility, type User } from "@pm/shared";
 import { prepareAvatar } from "../lib/image";
+import { disablePush, enablePush, pushState, type PushState } from "../lib/push";
 import { navigate } from "../lib/router";
 import { displayName } from "../lib/users";
 import { useAuth } from "../store/auth";
 import { useBlocks } from "../store/blocks";
+import { usePrivacy } from "../store/privacy";
 import { Avatar } from "./Avatar";
 
-/** The signed-in user's profile page (/profile): avatar, display name and blocked people. */
+/** The signed-in user's profile page (/profile): avatar, display name, notifications, privacy and blocked people. */
 export function ProfilePage({ me }: { me: User }) {
   return (
     <section className="profile-page">
@@ -20,6 +22,8 @@ export function ProfilePage({ me }: { me: User }) {
       <div className="profile-content">
         <AvatarSection me={me} />
         <NameSection me={me} />
+        <NotificationsSection />
+        <PrivacySection />
         <BlockedSection />
       </div>
     </section>
@@ -121,6 +125,109 @@ function NameSection({ me }: { me: User }) {
     </form>
   );
 }
+
+const PUSH_NOTES: Record<PushState, string> = {
+  on: "You get a notification of new messages while the chat isn't open anywhere.",
+  off: "Get a notification of new messages while the chat isn't open anywhere.",
+  denied: "Notifications are blocked for this site. Allow them in the browser's site settings.",
+  unsupported: "This browser can't show push notifications.",
+  unavailable: "Push notifications aren't set up on this server.",
+};
+
+function NotificationsSection() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    pushState().then(setState, (err: Error) => setError(err.message));
+  }, []);
+
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setState(await (state === "on" ? disablePush() : enablePush()));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="profile-section stack">
+      <div>
+        <h3>Notifications</h3>
+        <p className="muted small">{state ? PUSH_NOTES[state] : "…"}</p>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {(state === "on" || state === "off") && (
+        <div className="row modal-actions">
+          <button type="button" className={state === "on" ? "secondary" : undefined} disabled={busy} onClick={() => void toggle()}>
+            {busy ? "…" : state === "on" ? "Turn off" : "Turn on"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrivacySection() {
+  const lastSeen = usePrivacy((s) => s.lastSeen);
+  const setLastSeen = usePrivacy((s) => s.setLastSeen);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const change = async (value: LastSeenVisibility) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await setLastSeen(value);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="profile-section stack">
+      <div>
+        <h3>Who can see my last seen time</h3>
+        <p className="muted small">
+          Others see "last seen recently", "within a week" or "within a month" instead of the time. If you don't share
+          yours, you won't see other people's either. Whether you're online is always visible.
+        </p>
+      </div>
+      {error && <p className="error">{error}</p>}
+      {lastSeen === null ? (
+        <p className="muted small">Loading…</p>
+      ) : (
+        <div className="stack privacy-options" role="radiogroup" aria-label="Who can see my last seen time">
+          {LAST_SEEN_OPTIONS.map(({ value, label }) => (
+            <label key={value} className="row privacy-option">
+              <input
+                type="radio"
+                name="last-seen"
+                value={value}
+                checked={lastSeen === value}
+                disabled={busy}
+                onChange={() => void change(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LAST_SEEN_OPTIONS: { value: LastSeenVisibility; label: string }[] = [
+  { value: "everybody", label: "Everybody" },
+  { value: "nobody", label: "Nobody" },
+];
 
 function BlockedSection() {
   const blocked = useBlocks((s) => s.blocked);

@@ -7,6 +7,7 @@ defmodule RealtimeServer.Application do
     children = [
       {Phoenix.PubSub, name: RealtimeServer.PubSub},
       RealtimeServerWeb.Presence,
+      RealtimeServer.LastSeen,
       RealtimeServerWeb.Endpoint
     ]
 

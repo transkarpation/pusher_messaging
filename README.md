@@ -1,10 +1,10 @@
 # pusher-messaging
 
-Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence, profiles with avatars, blocking users, and roles (user, admin, superadmin) with a user administration page. Real-time updates go through a Phoenix server (see [Realtime transport](#realtime-transport)).
+Real-time chat with rooms (with an optional picture), invitations, messages (editable and deletable) with file attachments, polls, typing indicators, delivered/read receipts, online presence with last seen, push notifications for people who are offline, profiles with avatars, blocking users, and roles (user, admin, superadmin) with a user administration page. The API is rate limited (see [Rate limits](#rate-limits)). Real-time updates go through a Phoenix server (see [Realtime transport](#realtime-transport)).
 
 ## Stack
 
-- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `@aws-sdk/client-s3` for attachments in S3
+- **Server** (`apps/server`): Express 5, Drizzle ORM, PostgreSQL, `@aws-sdk/client-s3` for attachments in S3, `express-rate-limit` with optional Redis (`rate-limit-redis`), `web-push`
 - **Client** (`apps/client`): React 19, Zustand, Vite, phoenix.js
 - **Mobile** (`apps/mobile`): Expo (React Native), Expo Router, phoenix.js. See [Mobile app](#mobile-app)
 - **Realtime server, Phoenix** (`apps/realtime-server-phoenix`): Elixir, Phoenix channels and Presence; holds the clients' realtime connections. See [its README](apps/realtime-server-phoenix/README.md)
@@ -15,7 +15,7 @@ Real-time chat with rooms (with an optional picture), invitations, messages (edi
 
 - Node.js 22+
 - pnpm. The version is pinned in `packageManager` in `package.json`; `corepack enable` is the easiest way to get it.
-- Docker, for PostgreSQL and the Phoenix realtime server (or Elixir 1.15+ to run `apps/realtime-server-phoenix` without Docker)
+- Docker, for PostgreSQL, the Phoenix realtime server (or Elixir 1.15+ to run `apps/realtime-server-phoenix` without Docker) and, optionally, Redis
 
 ## Getting started
 
@@ -38,6 +38,9 @@ Real-time chat with rooms (with an optional picture), invitations, messages (edi
    | `PHOENIX_SHARED_SECRET` | required: a long random string (e.g. `openssl rand -hex 32`) shared with the Phoenix server |
    | `PHOENIX_URL`, `PHOENIX_SOCKET_URL` | where the API reaches the Phoenix server and where clients connect; the defaults fit local development. See [its README](apps/realtime-server-phoenix/README.md) |
    | `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PREFIX` | optional: an AWS S3 bucket for attachment files; without `S3_BUCKET` they're kept in Postgres. See [Attachment storage](#attachment-storage) |
+   | `REDIS_URL` | optional: Redis for rate limit counters (`redis://localhost:6380` with `pnpm redis:up`); without it each API process counts in memory. See [Rate limits](#rate-limits) |
+   | `RATE_LIMITS`, `TRUST_PROXY` | optional: `off` turns rate limits off; the number of reverse proxies in front of the API, so limits see client IPs |
+   | `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`, `EXPO_ACCESS_TOKEN` | optional: push notifications. See [Push notifications](#push-notifications) |
 
    The clients need no `.env` for realtime. They get the Phoenix socket URL from `GET /api/realtime/config`.
 
@@ -49,6 +52,8 @@ Real-time chat with rooms (with an optional picture), invitations, messages (edi
    ```
 
    PostgreSQL listens on host port `5433`, so it doesn't clash with a local Postgres on `5432`.
+
+   Optionally, `pnpm redis:up` starts Redis on host port `6380` (not `6379`, for the same reason). Set `REDIS_URL` to use it.
 
 4. **Run the server and the client**
 
@@ -134,6 +139,7 @@ How it differs from the web client:
 | `pnpm db:set-role <username> <role>` | gives an account the `user`, `admin` or `superadmin` role (see [Roles and administration](#roles-and-administration)) |
 | `pnpm db:studio` | opens Drizzle Studio to browse the database |
 | `pnpm realtime:phoenix` | builds and runs the Phoenix realtime server in Docker |
+| `pnpm redis:up` | starts Redis in Docker, for rate limit counters (see [Rate limits](#rate-limits)) |
 
 ## Server structure
 
@@ -150,12 +156,13 @@ How it differs from the web client:
 | `admin` | who may see, create and edit which accounts (`/api/admin`) |
 | `blocks` | the block list |
 | `chat` | rooms, members, invitations, messages, receipts, typing |
-| `realtime` | publishing events (`RealtimePublisher`) through `PhoenixGateway`, channel authorization, `/api/realtime` routes |
+| `realtime` | publishing events (`RealtimePublisher`) through `PhoenixGateway`, who is online (`PresenceSource`), channel authorization, `/api/realtime` routes |
 | `storage` | `S3Store` for attachment bytes in AWS S3, `S3_*` config |
+| `push` | push notifications to people who aren't connected (Web Push and Expo), `/api/push` routes |
 | `seeds` | demo accounts for `/seeds` |
 | `docs` | OpenAPI document and Swagger UI |
 
-Modules use each other only through the facade exported from their `index.ts`, never through another module's repository or tables. For example, `chat` stores people as ids and gets the `User`s from `UsersService`. Writes that span tables of one module run in one transaction through `Transactor` (`shared/transaction.ts`). `container.ts` creates and wires all repositories and services, `app.ts` mounts the routes, and `index.ts` starts the server.
+Modules use each other only through the facade exported from their `index.ts`, never through another module's repository or tables. For example, `chat` stores people as ids and gets the `User`s from `UsersService`. Writes that span tables of one module run in one transaction through `Transactor` (`shared/transaction.ts`). `container.ts` creates and wires all repositories and services, `app.ts` mounts the routes (behind the limits in `rateLimits.ts`), and `index.ts` starts the server.
 
 ## Real-time channels
 
@@ -189,6 +196,52 @@ A separate Phoenix server (`apps/realtime-server-phoenix`) holds the clients' co
 - **Scaling.** Any number of API processes; Phoenix itself can be clustered.
 
 Details and how to run it: [apps/realtime-server-phoenix/README.md](apps/realtime-server-phoenix/README.md).
+
+## Rate limits
+
+The API limits the requests that are costly or open to abuse, all in [apps/server/src/rateLimits.ts](apps/server/src/rateLimits.ts). Reads aren't limited.
+
+| Requests | Limit | Counted per |
+|---|---|---|
+| `POST /api/auth/login` with a wrong password | 10 / 15 min (successful sign-ins don't count) | IP + username |
+| `POST /api/auth/login`, any outcome | 100 / 15 min | IP |
+| `POST /api/auth/register` | 10 / hour | IP |
+| Messages, polls, poll options and comments (one shared budget) | 20 / 10 s | user |
+| Editing messages | 20 / 10 s | user |
+| Typing notifications | 1 / s; extra ones get 204 and are dropped | user + room |
+| Attachment uploads | 20 / min | user |
+| Avatars, room edits (name or picture) | 10 / 10 min | user |
+| Creating rooms | 30 / hour | user |
+| Inviting | 50 / hour | user |
+| Push subscriptions, Phoenix tokens | 10 / min, 30 / min | user |
+
+Over a limit the API answers `429` with `{ error }` ("Too many requests. Try again in 15 min.") and `Retry-After`, plus the `RateLimit` / `RateLimit-Policy` headers on limited routes.
+
+- **Where counters live.** With `REDIS_URL` set (`pnpm redis:up`, then `REDIS_URL=redis://localhost:6380` in `apps/server/.env`) they're in Redis, shared by all API processes, under `rl:{limit}:{key}`. Without it each process counts in its own memory. That is fine for one process, but N processes allow N times the limit.
+- **Redis down.** Requests go through without limits rather than fail. The outage and the recovery are logged once each. At startup the server waits up to 3 s for Redis.
+- **Behind a proxy.** Set `TRUST_PROXY` (e.g. `1` for one nginx in front), or every client counts as the proxy's IP. IPv6 addresses are counted per /56 network.
+- **Off.** `RATE_LIMITS=off` turns them all off.
+
+## Last seen
+
+Room members carry `lastSeen`, when they were last connected. The web client shows it in the member list for people who are offline: "last seen 5 min ago", "today at 14:05", "yesterday at 14:05", then the date.
+
+- **Privacy.** Profile → "Who can see my last seen time": Everybody (default) or Nobody (`PUT /api/auth/me/privacy`, `users.last_seen_visibility`). With Nobody, others get only an approximation instead of the time: `recently` (within 3 days), `week`, `month` or `long_ago`, shown as "last seen recently" and so on. As in Telegram, it works both ways: if you hide yours, you see everyone else's only approximately too. The API applies this when it builds your room list; events carry what everyone may see, and the client coarsens them for someone who hides their own. Whether someone is online stays visible to everyone, so anyone watching at the moment they go offline still sees when it happened.
+
+- **Who sets it.** Phoenix, which holds the connections. When a user's last connection closes (all tabs and devices), it calls `POST /api/realtime/phoenix/seen` about a second later. The API stores `users.last_seen_at` and announces `user:seen` (`UserSeenEvent`) on `presence-online`, so open member lists update. Changing the privacy setting is announced the same way.
+- **Crashes.** While users are connected, Phoenix reports them once a minute, and their `users.last_seen_at` is moved to that time. If Phoenix dies without saying who left, the value is at most a minute old.
+- **Online or not** still comes from the presence channel. `lastSeen` matters only for people who aren't in it. It's null for anyone who hasn't connected since this was added.
+
+Details on the Phoenix side: [apps/realtime-server-phoenix/README.md](apps/realtime-server-phoenix/README.md).
+
+## Push notifications
+
+When a text message or a poll is posted, every other member of the room who has **no open realtime connection** gets a push notification. Members who blocked the author don't. The title is the room's name and the body is "Author: text"; tapping it opens the room.
+
+- **Who is offline.** Each client keeps its user's own channel (`private-user-{id}`) open while it runs. Phoenix tracks those users on an internal presence topic, and the API asks `POST /api/presence/online` (shared secret) before sending. If Phoenix can't be reached, everyone counts as offline. The mobile app keeps its socket for a while after going to the background, so it gets pushes once the OS drops the connection (about a minute at most, through the heartbeat).
+- **Subscriptions.** `POST /api/push/subscriptions` stores a browser's Web Push subscription or the app's Expo push token in `push_subscriptions`, tied to the session. Signing out removes it. Subscriptions the push service reports as gone (Web Push 404/410, Expo `DeviceNotRegistered`) are deleted.
+- **Web.** Profile → Notifications → Turn on. `public/sw.js` shows the notifications. Web Push is on only when the server has a VAPID key pair: run `pnpm --filter server push:keys` and put its output into `apps/server/.env` (with `WEB_PUSH_SUBJECT`, a `mailto:` contact). Browsers allow it on `https://` or `localhost`.
+- **Mobile.** The app asks for permission after signing in and registers its Expo push token. It needs a development or release build (not Expo Go), an EAS project id in `app.json` (`eas init` sets `extra.eas.projectId`) and, for Android, FCM credentials uploaded to EAS (`eas credentials`). Set `EXPO_ACCESS_TOKEN` on the server only if the project has push security turned on.
 
 ## Attachment storage
 

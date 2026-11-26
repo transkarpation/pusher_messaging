@@ -12,7 +12,8 @@
     "db:seed": "pnpm --filter server db:seed",
     "db:set-role": "pnpm --filter server db:set-role",
     "db:studio": "pnpm --filter server db:studio",
-    "realtime:phoenix": "docker compose up --build realtime-phoenix"
+    "realtime:phoenix": "docker compose up --build realtime-phoenix",
+    "redis:up": "docker compose up -d redis"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

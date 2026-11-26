@@ -21,6 +21,11 @@ export class BlocksService {
     return this.blocks.blockedIds(userId);
   }
 
+  /** Which of `userIds` blocked `blockedId` (they don't want to hear from them). */
+  blockersAmong(blockedId: number, userIds: number[]): Promise<number[]> {
+    return this.blocks.blockersAmong(blockedId, userIds);
+  }
+
   /** People the user blocked, most recently blocked first. */
   async list(userId: number): Promise<User[]> {
     const ids = await this.blocks.blockedIds(userId);

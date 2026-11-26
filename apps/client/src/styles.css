@@ -110,7 +110,7 @@ h3 { font-size: 14px; font-weight: 600; }
 .center-text { text-align: center; align-items: center; }
 label, .label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 
-input:not([type="checkbox"]),
+input:not([type="checkbox"]):not([type="radio"]),
 textarea {
   font: inherit;
   padding: 8px 10px;
@@ -643,6 +643,10 @@ div.messages-placeholder { display: flex; justify-content: center; padding-top: 
 .members ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .members li { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 28px; }
 .member-name { flex: 1; overflow-wrap: anywhere; }
+.member-seen { display: block; }
+.privacy-options { gap: 6px; }
+.privacy-option { flex-direction: row; justify-content: flex-start; gap: 8px; cursor: pointer; }
+.privacy-option input { margin: 0; accent-color: var(--accent); }
 .tag {
   margin-left: 6px;
   padding: 1px 6px;

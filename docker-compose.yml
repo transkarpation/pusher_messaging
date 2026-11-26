@@ -11,6 +11,21 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Rate limit counters shared by all API processes (REDIS_URL in apps/server/.env).
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # The realtime server (apps/realtime-server-phoenix). `pnpm db:up` starts only the database;
   # run this with `pnpm realtime:phoenix`, or start both with `docker compose up`.
   realtime-phoenix:
@@ -28,3 +43,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

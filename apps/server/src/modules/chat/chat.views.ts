@@ -82,12 +82,16 @@ export class ChatViews {
       this.messages.userReceipts(userId, ids),
       this.invites.forRooms(ids),
     ]);
-    const [users, files, polls] = await Promise.all([
+    const [users, lastSeen, files, polls] = await Promise.all([
       this.users.getByIds([
         ...memberRows.map((m) => m.userId),
         ...latestRows.map((m) => m.userId),
         ...inviteRows.flatMap((i) => (i.invitedBy === null ? [i.userId] : [i.userId, i.invitedBy])),
       ]),
+      this.users.lastSeenOf(
+        memberRows.map((m) => m.userId),
+        userId,
+      ),
       this.attachmentsOf(latestRows),
       this.pollsOf(latestRows, userId),
     ]);
@@ -103,7 +107,7 @@ export class ChatViews {
         createdAt: r.createdAt.toISOString(),
         members: memberRows
           .filter((m) => m.roomId === r.id)
-          .flatMap((m) => withUser(users, m.userId, (user) => ({ role: m.role, user }))),
+          .flatMap((m) => withUser(users, m.userId, (user) => toMember(m.role, user, lastSeen))),
         invites: invites.filter((i) => i.roomId === r.id).map(({ roomId: _, ...invite }) => invite),
         lastMessage: (last && this.toMessage(last, users, files, polls)) ?? null,
         unreadCount: unread.get(r.id) ?? 0,
@@ -114,10 +118,23 @@ export class ChatViews {
     });
   }
 
+  /**
+   * Who to notify of a message by `authorId` in the room: the other members, except those who
+   * blocked the author; and the room's name. Null if the author isn't a member (any more).
+   */
+  async notifyRecipients(roomId: number, authorId: number): Promise<{ roomName: string; userIds: number[] } | null> {
+    const [[room], rows] = await Promise.all([this.rooms.roomsOf(authorId, [roomId]), this.rooms.members([roomId])]);
+    if (!room) return null;
+    const others = rows.map((m) => m.userId).filter((id) => id !== authorId);
+    const blockers = new Set(await this.blocks.blockersAmong(authorId, others));
+    return { roomName: room.name, userIds: others.filter((id) => !blockers.has(id)) };
+  }
+
   async members(roomId: number): Promise<RoomMember[]> {
     const rows = await this.rooms.members([roomId]);
-    const users = await this.users.getByIds(rows.map((m) => m.userId));
-    return rows.flatMap((m) => withUser(users, m.userId, (user) => ({ role: m.role, user })));
+    const ids = rows.map((m) => m.userId);
+    const [users, lastSeen] = await Promise.all([this.users.getByIds(ids), this.users.lastSeenOf(ids)]);
+    return rows.flatMap((m) => withUser(users, m.userId, (user) => toMember(m.role, user, lastSeen)));
   }
 
   /** Pending invites of a room, oldest first. */
@@ -270,6 +287,12 @@ export class ChatViews {
 }
 
 /** `make(user)` if the user exists, else nothing (an account deleted mid-request). */
+const toMember = (role: RoomMember["role"], user: User, lastSeen: Map<number, RoomMember["lastSeen"]>): RoomMember => ({
+  role,
+  user,
+  lastSeen: lastSeen.get(user.id) ?? null,
+});
+
 const withUser = <T>(users: Map<number, User>, id: number, make: (user: User) => T): T[] => {
   const user = users.get(id);
   return user ? [make(user)] : [];

@@ -41,6 +41,12 @@
             "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "messages"
+        }
       ]
     ],
     "experiments": {

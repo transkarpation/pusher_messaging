@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Credentials, SessionUser, User } from "@pm/shared";
 import { api } from "../api";
+import { forgetPush } from "../lib/push";
 import { disconnectRealtime } from "../realtime";
 
 type Status = "idle" | "loading" | "ready";
@@ -61,6 +62,8 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (me?.id === user.id) set({ user: { ...me, ...user } });
   },
   logout: async () => {
+    // Whoever signs in next in this browser decides for themselves.
+    await forgetPush().catch(() => undefined);
     await api.logout();
     disconnectRealtime();
     set({ user: null });

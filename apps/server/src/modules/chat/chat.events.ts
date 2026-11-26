@@ -33,6 +33,7 @@ import {
   type RoomUpdatedEvent,
   type TypingEvent,
 } from "@pm/shared";
+import type { MessageNotifier } from "../push/index.js";
 import type { RealtimePublisher } from "../realtime/index.js";
 import type { ChatViews } from "./chat.views.js";
 
@@ -44,16 +45,28 @@ export class ChatEvents {
   constructor(
     private readonly realtime: RealtimePublisher,
     private readonly views: ChatViews,
+    private readonly notifier?: MessageNotifier,
   ) {}
 
   /**
    * The message to the room's channel, and ROOM_ACTIVITY_EVENT to the room's activity topic, which
    * the realtime server forwards to each member's user channel (also for rooms a client hasn't loaded).
+   * In the background, a text message or a poll also goes to the notifier for members who aren't
+   * connected (those who blocked the author left out).
    */
   messageCreated(message: Message, except?: string) {
     this.realtime.publish(roomChannel(message.roomId), MESSAGE_CREATED_EVENT, message, except);
     const activity: RoomActivityEvent = { roomId: message.roomId, message };
     this.realtime.publish(roomActivityTopic(message.roomId), ROOM_ACTIVITY_EVENT, activity, except);
+    const notifier = this.notifier;
+    if (notifier && (message.kind === "text" || message.kind === "poll")) {
+      background(
+        "Push notification",
+        this.views.notifyRecipients(message.roomId, message.author.id).then(
+          (to) => to && notifier.messageCreated(message, to.roomName, to.userIds),
+        ),
+      );
+    }
   }
 
   messageUpdated(message: Message, except?: string) {

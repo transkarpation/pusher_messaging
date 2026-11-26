@@ -7,6 +7,9 @@ config :realtime_server, RealtimeServerWeb.Endpoint,
 config :realtime_server,
   shared_secret: "test-secret",
   api_url: "http://api.invalid",
-  backend: RealtimeServer.BackendStub
+  backend: RealtimeServer.BackendStub,
+  last_seen_flush_ms: 10,
+  # Tests send :touch themselves.
+  last_seen_touch_ms: 3_600_000
 
 config :logger, level: :warning

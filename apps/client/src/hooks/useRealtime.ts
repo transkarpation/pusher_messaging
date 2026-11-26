@@ -19,6 +19,7 @@ import {
   ROOM_REMOVED_EVENT,
   ROOM_UPDATED_EVENT,
   USER_TYPING_EVENT,
+  USER_SEEN_EVENT,
   USER_UPDATED_EVENT,
   roomChannel,
   userChannel,
@@ -39,6 +40,7 @@ import {
   type RoomUpdatedEvent,
   type TypingEvent,
   type User,
+  type UserSeenEvent,
 } from "@pm/shared";
 import { isWindowActive } from "../lib/activity";
 import { getRealtime } from "../realtime";
@@ -151,6 +153,7 @@ export function useRealtime(me: User) {
             invitations.updateUser(u);
             useAuth.getState().applyUpdate(u);
           },
+          [USER_SEEN_EVENT]: (e: UserSeenEvent) => online.applySeen(e),
         } satisfies Handlers);
 
         const mine = conn.subscribe(userChannel(me.id));

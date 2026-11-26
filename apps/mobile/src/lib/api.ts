@@ -12,6 +12,7 @@ import {
   type PollCommentInput,
   type PollOptionInput,
   type PollVoteInput,
+  type RegisterPushInput,
   type Receipt,
   type RealtimeConfig,
   type Room,
@@ -87,6 +88,8 @@ export const api = {
     request<TokenAuthResponse>("/auth/register", "POST", { ...c, session: "token" } satisfies AuthRequest),
   logout: () => request<void>("/auth/logout", "POST"),
   me: () => request<{ user: User | null }>("/auth/me"),
+  /** Where this session's push notifications go (see lib/push.ts). */
+  registerPush: (input: RegisterPushInput) => request<void>("/push/subscriptions", "POST", input),
 
   /**
    * A page of the user's rooms, most recently active first; `before` is the previous page's `nextCursor`.

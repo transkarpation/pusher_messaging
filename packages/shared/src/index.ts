@@ -37,6 +37,36 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+// ---- Last seen ------------------------------------------------------------
+
+/** Who sees when you were last connected; the rest see only an approximation (`LastSeenApprox`). */
+export const LAST_SEEN_VISIBILITIES = ["everybody", "nobody"] as const;
+export type LastSeenVisibility = (typeof LAST_SEEN_VISIBILITIES)[number];
+
+/** GET/PUT /api/auth/me/privacy. */
+export const privacySettingsSchema = z.object({ lastSeen: z.enum(LAST_SEEN_VISIBILITIES) });
+export type PrivacySettings = z.infer<typeof privacySettingsSchema>;
+
+/** Shown instead of the time: within 3 days, a week, a month, or longer ago. */
+export type LastSeenApprox = "recently" | "week" | "month" | "long_ago";
+
+/**
+ * When someone was last connected: the time (`at`), or only roughly (`approx`) when they hide
+ * it, or when the viewer hides their own (as in Telegram, hiding yours hides everyone's from you).
+ */
+export type LastSeen = { at: string } | { approx: LastSeenApprox };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function approximateLastSeen(at: string, now = Date.now()): LastSeenApprox {
+  const ago = now - Date.parse(at);
+  return ago <= 3 * DAY_MS ? "recently" : ago <= 7 * DAY_MS ? "week" : ago <= 30 * DAY_MS ? "month" : "long_ago";
+}
+
+/** `seen` without the exact time. */
+export const hideLastSeen = (seen: LastSeen, now = Date.now()): LastSeen =>
+  "at" in seen ? { approx: approximateLastSeen(seen.at, now) } : seen;
+
 const messageText = z.string().trim().max(2000, "Message is too long");
 
 /**
@@ -400,6 +430,14 @@ export type RoomRole = "owner" | "member";
 export interface RoomMember {
   user: User;
   role: RoomRole;
+  /**
+   * When the member was last connected: set as their last connection closes, and about once
+   * a minute while they are connected (so after a realtime server crash it's at most that
+   * old). Only approximate if they hide it (`PrivacySettings`), or if you hide yours (in your
+   * own room list; events carry what everyone may see). Null if they haven't connected since
+   * this was introduced. Whether they are online now comes from the presence channel.
+   */
+  lastSeen: LastSeen | null;
 }
 
 /**
@@ -667,6 +705,16 @@ export const BLOCKS_UPDATED_EVENT = "blocks:updated";
 export const POLL_VOTED_EVENT = "poll:voted";
 // online channel events
 export const USER_UPDATED_EVENT = "user:updated";
+/**
+ * Carries `UserSeenEvent`: people whose last connection just closed, or who changed who sees
+ * their last seen, with what everyone may see. A viewer who hides their own shows it only
+ * approximately (`hideLastSeen`).
+ */
+export const USER_SEEN_EVENT = "user:seen";
+
+export interface UserSeenEvent {
+  seen: { userId: number; lastSeen: LastSeen }[];
+}
 
 export interface TypingEvent {
   roomId: number;
@@ -773,4 +821,43 @@ export interface PhoenixTokenResponse {
 export interface PresenceMember {
   id: string;
   info: PresenceUserInfo;
+}
+
+// ---- Push notifications ---------------------------------------------------
+
+/**
+ * Body of POST /api/push/subscriptions: where to send push notifications for this session
+ * (a browser's Web Push subscription, or an Expo push token from the mobile app).
+ * Only users with no open realtime connection get them; signing out removes the subscription.
+ */
+export const registerPushSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("web"),
+    endpoint: z.url({ protocol: /^https$/ }).max(2048),
+    keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
+  }),
+  z.object({
+    kind: z.literal("expo"),
+    token: z.string().regex(/^Expo(nent)?PushToken\[[^\]]+\]$/, "Not an Expo push token"),
+  }),
+]);
+export type RegisterPushInput = z.infer<typeof registerPushSchema>;
+
+/** Body of DELETE /api/push/subscriptions: the Web Push endpoint or Expo token to stop sending to. */
+export const unregisterPushSchema = z.object({ endpoint: z.string().min(1).max(2048) });
+export type UnregisterPushInput = z.infer<typeof unregisterPushSchema>;
+
+/** GET /api/push/config. `webPushPublicKey`: the VAPID key to subscribe with, or null when Web Push is off. */
+export interface PushConfig {
+  webPushPublicKey: string | null;
+}
+
+/** What a push notification carries, for the client to show it and open the room on a tap. */
+export interface PushPayload {
+  roomId: number;
+  messageId: number;
+  /** The room's name. */
+  title: string;
+  /** "Author: text" (or what the message holds when it has no text). */
+  body: string;
 }

@@ -1,15 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Room, User } from "@pm/shared";
 import { api } from "../api";
+import { lastSeenText } from "../lib/dates";
 import { displayName } from "../lib/users";
 import { useBlocks } from "../store/blocks";
-import { useOnline } from "../store/online";
+import { lastSeenOf, useOnline } from "../store/online";
+import { usePrivacy } from "../store/privacy";
 import { useRooms } from "../store/rooms";
 import { Avatar } from "./Avatar";
 import { InviteModal } from "./InviteModal";
 
 export function MembersPanel({ room, me }: { room: Room; me: User }) {
   const online = useOnline((s) => s.users);
+  const lastSeen = useOnline((s) => s.lastSeen);
+  const hideOwn = usePrivacy((s) => s.lastSeen === "nobody");
+  const now = useNow(60_000);
   const blocked = useBlocks((s) => s.ids);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +84,9 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
       </div>
       {error && <p className="error">{error}</p>}
       <ul>
-        {sorted.map(({ user, role }) => {
+        {sorted.map(({ user, role, lastSeen: loadedSeen }) => {
           const isMe = user.id === me.id;
+          const seen = isOnline(user.id) ? null : lastSeenOf(lastSeen, user.id, loadedSeen);
           const canRemove = !isMe && myRole === "owner";
           return (
             <li key={user.id}>
@@ -93,6 +99,7 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
                 {isMe && <span className="muted"> (you)</span>}
                 {role === "owner" && <span className="tag">owner</span>}
                 {blocked.has(user.id) && <span className="tag blocked">blocked</span>}
+                {seen && <span className="muted small member-seen">{lastSeenText(seen, hideOwn, now)}</span>}
               </span>
               {!isMe && (
                 <button
@@ -165,4 +172,14 @@ export function MembersPanel({ room, me }: { room: Room; me: User }) {
       {adding && <InviteModal room={room} onClose={() => setAdding(false)} />}
     </aside>
   );
+}
+
+/** The current time, updated every `intervalMs` (for "5 min ago" labels). */
+function useNow(intervalMs: number): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
 }

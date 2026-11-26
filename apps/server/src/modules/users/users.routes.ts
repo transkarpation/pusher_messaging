@@ -1,5 +1,5 @@
 import express, { Router } from "express";
-import { AVATAR_CONTENT_TYPES, AVATAR_MAX_BYTES, updateProfileSchema } from "@pm/shared";
+import { AVATAR_CONTENT_TYPES, AVATAR_MAX_BYTES, privacySettingsSchema, updateProfileSchema } from "@pm/shared";
 import { notFound } from "../../shared/errors.js";
 import { parse } from "../../shared/http.js";
 import type { RequireAuth } from "../auth/auth.middleware.js";
@@ -22,6 +22,15 @@ export function profileRoutes(users: UsersService, requireAuth: RequireAuth) {
 
   router.delete("/avatar", async (req, res) => {
     res.json({ user: { ...(await users.removeAvatar(req.user!.id)), role: req.user!.role } });
+  });
+
+  /** Who sees the user's last seen time. */
+  router.get("/privacy", async (req, res) => {
+    res.json(await users.getPrivacy(req.user!.id));
+  });
+
+  router.put("/privacy", async (req, res) => {
+    res.json(await users.setPrivacy(req.user!.id, parse(privacySettingsSchema, req.body)));
   });
 
   return router;

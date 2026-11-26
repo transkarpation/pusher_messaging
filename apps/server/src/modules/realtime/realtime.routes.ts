@@ -7,7 +7,8 @@ import type { RealtimeService } from "./realtime.service.js";
 
 /**
  * /api/realtime: where clients connect (the Phoenix server), the tokens they connect with,
- * and the authorization callback the Phoenix server calls on every channel join.
+ * the authorization callback the Phoenix server calls on every channel join, and its reports
+ * of who was last connected when.
  */
 export function realtimeRoutes(realtime: RealtimeService, phoenix: PhoenixGateway, requireAuth: RequireAuth) {
   const router = Router();
@@ -27,6 +28,13 @@ export function realtimeRoutes(realtime: RealtimeService, phoenix: PhoenixGatewa
   router.post("/phoenix/authorize", async (req, res) => {
     if (!phoenix.isPhoenix(req.get("Authorization"))) throw unauthorized("Invalid shared secret");
     res.json(await realtime.authorizeUserId(req.body?.userId, req.body?.channel));
+  });
+
+  /** The Phoenix server reports who is connected and who just left (for `lastSeenAt`). */
+  router.post("/phoenix/seen", async (req, res) => {
+    if (!phoenix.isPhoenix(req.get("Authorization"))) throw unauthorized("Invalid shared secret");
+    await realtime.recordSeen(req.body);
+    res.status(204).end();
   });
 
   return router;

@@ -16,10 +16,19 @@ import {
   PollsService,
   RoomsService,
 } from "./modules/chat/index.js";
+import {
+  DrizzlePushRepository,
+  ExpoPushSender,
+  PushService,
+  WebPushSender,
+  expoAccessTokenFromEnv,
+  webPushConfigFromEnv,
+} from "./modules/push/index.js";
 import { PhoenixGateway, RealtimeService, phoenixConfigFromEnv } from "./modules/realtime/index.js";
 import { S3Store, s3ConfigFromEnv, type AttachmentStorage } from "./modules/storage/index.js";
 import { SeedsService } from "./modules/seeds/index.js";
 import { DrizzleUsersRepository, UsersService } from "./modules/users/index.js";
+import { redisFromEnv } from "./shared/redis.js";
 import { DrizzleTransactor } from "./shared/transaction.js";
 
 /**
@@ -32,6 +41,8 @@ export function createContainer() {
   const phoenix = new PhoenixGateway(phoenixConfigFromEnv());
   const publisher = phoenix;
   const tx = new DrizzleTransactor(db);
+  // Shared state across API processes (rate limit counters), when REDIS_URL is set.
+  const redis = redisFromEnv();
 
   const users = new UsersService(new DrizzleUsersRepository(db), publisher);
   const auth = new AuthService(new DrizzleSessionsRepository(db), users);
@@ -44,7 +55,15 @@ export function createContainer() {
   const attachmentsRepo = new DrizzleAttachmentsRepository(db);
   const pollsRepo = new DrizzlePollsRepository(db);
   const views = new ChatViews(roomsRepo, messagesRepo, invitesRepo, attachmentsRepo, pollsRepo, users, blocks);
-  const events = new ChatEvents(publisher, views);
+  // Push notifications go to people with no realtime connection; Web Push only when its VAPID keys are set.
+  const webPush = webPushConfigFromEnv();
+  const push = new PushService(
+    new DrizzlePushRepository(db),
+    phoenix,
+    webPush && { config: webPush, sender: new WebPushSender(webPush) },
+    new ExpoPushSender(expoAccessTokenFromEnv()),
+  );
+  const events = new ChatEvents(publisher, views, push);
   const rooms = new RoomsService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   const invites = new InvitesService(tx, roomsRepo, messagesRepo, invitesRepo, users, views, events);
   // Attachment bytes go to the S3 bucket when S3_BUCKET is set, else to Postgres.
@@ -69,8 +88,10 @@ export function createContainer() {
     polls,
     realtime,
     phoenix,
+    push,
     attachmentStorage,
     seeds,
+    redis,
   };
 }
 

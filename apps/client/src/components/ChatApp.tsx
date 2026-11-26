@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { isAdminRole, type SessionUser } from "@pm/shared";
 import { useReceiptsReporter } from "../hooks/useReceiptsReporter";
 import { useRealtime } from "../hooks/useRealtime";
-import { ADMIN_PATH, PROFILE_PATH, usePath } from "../lib/router";
+import { onNotificationOpen, syncPush } from "../lib/push";
+import { ADMIN_PATH, PROFILE_PATH, navigate, usePath } from "../lib/router";
 import { useBlocks } from "../store/blocks";
 import { useInvitations } from "../store/invitations";
 import { useMessages } from "../store/messages";
+import { usePrivacy } from "../store/privacy";
 import { useRooms } from "../store/rooms";
 import { AdminPage } from "./AdminPage";
 import { CreateRoomModal } from "./CreateRoomModal";
@@ -27,19 +29,35 @@ export function ChatApp({ user }: { user: SessionUser }) {
   useReceiptsReporter();
 
   useEffect(() => {
+    // A clicked notification opens the room: in this window, or in a new one as /?room={id}.
+    const openRoom = (roomId: number) => {
+      useRooms.getState().setActive(roomId);
+      navigate("/");
+    };
+    const fromUrl = Number(new URLSearchParams(window.location.search).get("room"));
+    if (Number.isInteger(fromUrl) && fromUrl > 0) {
+      useRooms.getState().setActive(fromUrl);
+      history.replaceState(null, "", window.location.pathname);
+    }
+    const stopNotifications = onNotificationOpen(openRoom);
+    syncPush().catch((err) => console.warn("Renewing the push subscription failed:", err));
+
     void useRooms.getState().fetch();
     void useInvitations.getState().fetch();
     void useBlocks.getState().fetch();
+    usePrivacy.getState().fetch().catch((err) => console.warn("Loading privacy settings failed:", err));
     // Blocking or unblocking changes which messages count as last and unread, so reload those.
     const unsubscribeBlocks = useBlocks.subscribe((s, prev) => {
       if (prev.loaded && s.ids !== prev.ids) void useRooms.getState().fetch({ trustServer: true });
     });
     return () => {
+      stopNotifications();
       unsubscribeBlocks();
       useRooms.getState().reset();
       useMessages.getState().reset();
       useInvitations.getState().reset();
       useBlocks.getState().reset();
+      usePrivacy.getState().reset();
     };
   }, []);
 

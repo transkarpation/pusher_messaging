@@ -1,0 +1,2 @@
+CREATE TYPE "public"."last_seen_visibility" AS ENUM('everybody', 'nobody');--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN "last_seen_visibility" "last_seen_visibility" DEFAULT 'everybody' NOT NULL;

@@ -9,6 +9,8 @@ defmodule RealtimeServerWeb.RealtimeChannel do
     each room's activity topic (`room-activity:{id}`) and pushes what's published there, so a
     client hears about new messages in all its rooms without joining every room's channel. It
     keeps the set current from the `room:added` / `room:removed` events on the user's channel.
+    The user also counts as connected (`RealtimeServerWeb.Presence.connected_topic/0`) while
+    the channel is open, which the API asks before sending push notifications.
   """
   use Phoenix.Channel
 
@@ -30,6 +32,7 @@ defmodule RealtimeServerWeb.RealtimeChannel do
         {:ok, %{presence: true}, socket}
 
       {:ok, %{"roomActivity" => room_ids}} when is_list(room_ids) ->
+        send(self(), :track_connected)
         socket = assign(socket, :activity_rooms, MapSet.new())
         {:ok, %{presence: false}, Enum.reduce(room_ids, socket, &listen_to_room/2)}
 
@@ -45,6 +48,12 @@ defmodule RealtimeServerWeb.RealtimeChannel do
   def handle_info({:track, id, info}, socket) do
     {:ok, _ref} = Presence.track(socket, id, %{info: info})
     push(socket, "presence_state", Presence.list(socket))
+    {:noreply, socket}
+  end
+
+  def handle_info(:track_connected, socket) do
+    {:ok, _ref} = Presence.track_connected(socket.assigns.user_id)
+
     {:noreply, socket}
   end
 

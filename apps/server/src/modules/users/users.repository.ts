@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, ilike, inArray, ne, or, sql, type SQL } from "drizzle-orm";
-import type { AdminUserSortField, AvatarContentType, Role, SessionUser, User } from "@pm/shared";
+import type { AdminUserSortField, AvatarContentType, LastSeenVisibility, Role, SessionUser, User } from "@pm/shared";
 import { schema } from "../../db/index.js";
 import type { DbExecutor } from "../../shared/transaction.js";
 
@@ -72,6 +72,10 @@ export interface UsersRepository {
   setAvatar(id: number, avatar: { contentType: AvatarContentType; data: Buffer }): Promise<User>;
   removeAvatar(id: number): Promise<User>;
   findAvatar(id: number): Promise<Avatar | null>;
+  /** When each of the users was last connected (null: not yet) and who may see it; missing ids are left out. */
+  lastSeenOf(ids: number[]): Promise<Map<number, { at: Date | null; visibility: LastSeenVisibility }>>;
+  setLastSeen(ids: number[], at: Date): Promise<void>;
+  setLastSeenVisibility(id: number, visibility: LastSeenVisibility): Promise<void>;
 }
 
 export class DrizzleUsersRepository implements UsersRepository {
@@ -193,5 +197,23 @@ export class DrizzleUsersRepository implements UsersRepository {
       .where(eq(userAvatars.userId, id))
       .limit(1);
     return avatar ?? null;
+  }
+
+  async lastSeenOf(ids: number[]) {
+    if (ids.length === 0) return new Map<number, { at: Date | null; visibility: LastSeenVisibility }>();
+    const rows = await this.db
+      .select({ id: users.id, at: users.lastSeenAt, visibility: users.lastSeenVisibility })
+      .from(users)
+      .where(inArray(users.id, ids));
+    return new Map(rows.map((r) => [r.id, { at: r.at, visibility: r.visibility }]));
+  }
+
+  async setLastSeenVisibility(id: number, visibility: LastSeenVisibility) {
+    await this.db.update(users).set({ lastSeenVisibility: visibility }).where(eq(users.id, id));
+  }
+
+  async setLastSeen(ids: number[], at: Date) {
+    if (ids.length === 0) return;
+    await this.db.update(users).set({ lastSeenAt: at }).where(inArray(users.id, ids));
   }
 }

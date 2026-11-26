@@ -1,10 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { Stack } from "expo-router";
+import * as Notifications from "expo-notifications";
+import { Stack, router } from "expo-router";
 import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DevBanner } from "../components/DevBanner";
+import { registerForPush, roomOfNotification } from "../lib/push";
 import { useSession } from "../lib/session";
 import { useColors, useIsDark } from "../lib/theme";
 
@@ -26,6 +28,22 @@ export default function RootLayout() {
   useEffect(() => {
     void restore();
   }, [restore]);
+
+  // Push notifications for this session, once signed in.
+  useEffect(() => {
+    if (status === "signedIn") registerForPush().catch((err) => console.warn("Push registration failed:", err));
+  }, [status]);
+
+  // A tapped notification opens its room (also one that launched the app), each tap once.
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handled = useRef<string | null>(null);
+  useEffect(() => {
+    const payload = lastResponse && roomOfNotification(lastResponse);
+    const key = lastResponse?.notification.request.identifier ?? null;
+    if (!payload || status !== "signedIn" || handled.current === key) return;
+    handled.current = key;
+    router.push({ pathname: "/rooms/[id]", params: { id: String(payload.roomId), name: payload.title } });
+  }, [lastResponse, status]);
 
   if (status === "loading") {
     return (

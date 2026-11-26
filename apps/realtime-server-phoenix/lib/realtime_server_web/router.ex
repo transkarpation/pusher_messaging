@@ -18,6 +18,7 @@ defmodule RealtimeServerWeb.Router do
     scope "/" do
       pipe_through :internal
       post "/broadcast", BroadcastController, :create
+      post "/presence/online", PresenceController, :online
     end
   end
 end

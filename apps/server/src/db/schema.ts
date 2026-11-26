@@ -17,6 +17,9 @@ import {
 /** Account roles, lowest first (see `ROLES` in @pm/shared). */
 export const userRole = pgEnum("user_role", ["user", "admin", "superadmin"]);
 
+/** Who sees a user's last seen time (see `LAST_SEEN_VISIBILITIES` in @pm/shared). */
+export const lastSeenVisibility = pgEnum("last_seen_visibility", ["everybody", "nobody"]);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: varchar("username", { length: 32 }).notNull().unique(),
@@ -28,6 +31,10 @@ export const users = pgTable("users", {
   /** The admin who created the account on the administration page; null for sign-ups. */
   createdBy: integer("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** When the user was last connected to the realtime server (see `RoomMember.lastSeen`); null: not yet. */
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true, precision: 3 }),
+  /** Who sees `lastSeenAt`; the rest get an approximation. */
+  lastSeenVisibility: lastSeenVisibility("last_seen_visibility").notNull().default("everybody"),
 });
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
@@ -275,4 +282,31 @@ export const pollComments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("poll_comments_message_id_idx").on(t.messageId)],
+);
+
+export const pushKind = pgEnum("push_kind", ["web", "expo"]);
+
+/**
+ * Where to send a session's push notifications: a browser's Web Push subscription or an Expo
+ * push token. Tied to the session, so signing out (or revoking sessions) removes it.
+ */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: varchar("session_id", { length: 64 })
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: pushKind("kind").notNull(),
+    /** The Web Push endpoint URL, or the Expo push token. */
+    endpoint: text("endpoint").notNull().unique(),
+    /** Web Push only: the subscription's keys. */
+    p256dh: text("p256dh"),
+    auth: text("auth"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("push_subscriptions_user_id_idx").on(t.userId)],
 );

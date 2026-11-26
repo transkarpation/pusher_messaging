@@ -16,4 +16,13 @@ defmodule RealtimeServer.BackendStub do
 
   def authorize(_user_id, "private-room-1"), do: {:ok, %{}}
   def authorize(_user_id, _channel), do: {:error, 403, "Forbidden channel"}
+
+  # Sent to the test process that asked for it with `Application.put_env(:realtime_server, :seen_listener, self())`.
+  @impl true
+  def seen(online, left) do
+    if pid = Application.get_env(:realtime_server, :seen_listener),
+      do: send(pid, {:seen, online, left})
+
+    :ok
+  end
 end

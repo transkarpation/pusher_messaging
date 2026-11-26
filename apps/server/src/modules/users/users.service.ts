@@ -1,4 +1,11 @@
-import { ONLINE_CHANNEL, USER_UPDATED_EVENT, type AdminUser, type SessionUser, type User } from "@pm/shared";
+import {
+  ONLINE_CHANNEL,
+  USER_SEEN_EVENT,
+  USER_UPDATED_EVENT,
+  hideLastSeen,
+  type LastSeen,
+  type PrivacySettings,
+  type UserSeenEvent, type AdminUser, type SessionUser, type User } from "@pm/shared";
 import { badRequest, notFound } from "../../shared/errors.js";
 import { sniffImageType } from "../../shared/images.js";
 import type { RealtimePublisher } from "../realtime/index.js";
@@ -123,6 +130,58 @@ export class UsersService {
     const avatar = await this.users.findAvatar(userId);
     if (!avatar) throw notFound("Not found");
     return avatar;
+  }
+
+  /**
+   * When each of the users was last connected (null: not yet), as `viewerId` may see it: the
+   * time if they share it, else roughly. Without a viewer: as everyone may see it. A viewer who
+   * hides their own sees everyone else's roughly.
+   */
+  async lastSeenOf(ids: Iterable<number>, viewerId?: number): Promise<Map<number, LastSeen | null>> {
+    const wanted = [...new Set(ids)];
+    const found = await this.users.lastSeenOf(viewerId === undefined ? wanted : [...wanted, viewerId]);
+    const viewerHides = viewerId !== undefined && found.get(viewerId)?.visibility === "nobody";
+    const now = Date.now();
+    return new Map(
+      wanted.flatMap((id): [number, LastSeen | null][] => {
+        const row = found.get(id);
+        if (!row) return [];
+        if (!row.at) return [[id, null]];
+        const exact: LastSeen = { at: row.at.toISOString() };
+        const hidden = id !== viewerId && (row.visibility === "nobody" || viewerHides);
+        return [[id, hidden ? hideLastSeen(exact, now) : exact]];
+      }),
+    );
+  }
+
+  /**
+   * Called by the realtime server: `online` are connected now, `left` just closed their last
+   * connection. Both get `lastSeenAt` = now; those who left are announced to everyone online,
+   * with what everyone may see.
+   */
+  async markSeen(online: number[], left: number[]): Promise<void> {
+    await this.users.setLastSeen([...new Set([...online, ...left])], new Date());
+    if (left.length > 0) await this.announceSeen(left);
+  }
+
+  async getPrivacy(userId: number): Promise<PrivacySettings> {
+    const row = (await this.users.lastSeenOf([userId])).get(userId);
+    if (!row) throw notFound("User not found");
+    return { lastSeen: row.visibility };
+  }
+
+  /** Others' member lists switch to the time or the approximation at once. */
+  async setPrivacy(userId: number, settings: PrivacySettings): Promise<PrivacySettings> {
+    await this.users.setLastSeenVisibility(userId, settings.lastSeen);
+    await this.announceSeen([userId]);
+    return settings;
+  }
+
+  private async announceSeen(userIds: number[]) {
+    const seen = [...(await this.lastSeenOf(userIds))].flatMap(([userId, lastSeen]) => (lastSeen ? [{ userId, lastSeen }] : []));
+    if (seen.length === 0) return;
+    const event: UserSeenEvent = { seen };
+    this.realtime.publish(ONLINE_CHANNEL, USER_SEEN_EVENT, event);
   }
 
   /** Presence user_info is fixed at subscribe time, so profile changes are broadcast to everyone. */

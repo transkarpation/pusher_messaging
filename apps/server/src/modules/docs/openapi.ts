@@ -30,7 +30,10 @@ import {
   typingSchema,
   updateMessageSchema,
   updateProfileSchema,
+  privacySettingsSchema,
   updateReceiptSchema,
+  registerPushSchema,
+  unregisterPushSchema,
 } from "@pm/shared";
 import { SESSION_COOKIE } from "../auth/index.js";
 
@@ -86,6 +89,7 @@ const tags = {
   invites: "Invitations",
   blocks: "Blocking",
   realtime: "Realtime",
+  push: "Push notifications",
   dev: "Development",
 };
 
@@ -180,7 +184,29 @@ const schemas: Record<string, Schema> = {
     myVotes: { ...arrayOf({ type: "integer" }), description: "Option ids you voted for" },
   }),
   RoomRole: { type: "string", enum: ["owner", "member"] },
-  RoomMember: object({ user: ref("User"), role: ref("RoomRole") }),
+  RoomMember: object({
+    user: ref("User"),
+    role: ref("RoomRole"),
+    lastSeen: {
+      ...nullable(ref("LastSeen")),
+      description:
+        "When the member was last connected: set as their last connection closes, and about once a minute while connected. " +
+        "Only approximate if they hide it, or (in your own room list) if you hide yours. Null if not yet. " +
+        "Whether they're online now comes from the `presence-online` channel, which also carries `user:seen` updates.",
+    },
+  }),
+  LastSeen: {
+    oneOf: [
+      object({ at: isoDate() }),
+      object({
+        approx: {
+          type: "string",
+          enum: ["recently", "week", "month", "long_ago"],
+          description: "Within 3 days, a week, a month, or longer ago",
+        },
+      }),
+    ],
+  },
   RoomInvite: object({
     user: ref("User"),
     invitedBy: { ...nullable(ref("User")), description: "Null if the inviter's account was deleted" },
@@ -341,6 +367,23 @@ const paths: Record<string, Record<string, Schema>> = {
       description: "Deletes the session (of the Bearer token, or of the cookie) and clears the cookie. Works signed out too.",
       security: [],
       responses: { 204: noContent },
+    },
+  },
+  "/auth/me/privacy": {
+    get: {
+      tags: [tags.auth],
+      summary: "Your privacy settings",
+      responses: { 200: json(fromZod(privacySettingsSchema), "Who sees your last seen time"), ...unauthorized },
+    },
+    put: {
+      tags: [tags.auth],
+      summary: "Change who sees your last seen time",
+      description:
+        "`everybody` or `nobody`. Others see only an approximation (`recently`, `week`, `month`, `long_ago`) when you choose `nobody`, " +
+        "and, as in Telegram, you then see everyone else's only approximately too. Announced as `user:seen` on `presence-online`. " +
+        "Whether you're online stays visible to everyone.",
+      requestBody: jsonBody(fromZod(privacySettingsSchema)),
+      responses: { 200: json(fromZod(privacySettingsSchema), "The settings after the change"), ...badRequest, ...unauthorized },
     },
   },
   "/auth/me/avatar": {
@@ -924,8 +967,49 @@ const paths: Record<string, Record<string, Schema>> = {
       },
     },
   },
+  "/realtime/phoenix/seen": {
+    post: {
+      tags: [tags.realtime],
+      summary: "Last-seen reports from the Phoenix server",
+      description:
+        "Called by the Phoenix server with `Authorization: Bearer <PHOENIX_SHARED_SECRET>`: `online` are connected now (sent about once a minute), " +
+        "`left` just closed their last connection. All get `lastSeenAt` = now; `left` is announced on `presence-online` as `user:seen`. Not for clients.",
+      security: [],
+      requestBody: jsonBody(object({ online: arrayOf({ type: "integer" }), left: arrayOf({ type: "integer" }) }, [])),
+      responses: { 204: noContent, ...badRequest, 401: error("Invalid shared secret") },
+    },
+  },
 
   // ---- development ---------------------------------------------------------
+  // ---- push notifications --------------------------------------------------
+  "/push/config": {
+    get: {
+      tags: [tags.push],
+      summary: "Web Push key",
+      description: "The VAPID public key browsers subscribe with (`applicationServerKey`), or null when Web Push is off on this server.",
+      responses: { 200: json(object({ webPushPublicKey: nullable({ type: "string" }) }), "Push configuration") },
+    },
+  },
+  "/push/subscriptions": {
+    post: {
+      tags: [tags.push],
+      summary: "Send this session's notifications here",
+      description:
+        "A browser's Web Push subscription (`kind: web`, from `PushSubscription.toJSON()`) or the mobile app's Expo push token (`kind: expo`). " +
+        "New text messages and polls in your rooms are pushed while you have no open realtime connection (nothing from people you blocked). " +
+        "The subscription belongs to the session: signing out removes it. Registering an endpoint again moves it to this session.",
+      requestBody: jsonBody(fromZod(registerPushSchema)),
+      responses: { 204: noContent, ...badRequest, ...unauthorized },
+    },
+    delete: {
+      tags: [tags.push],
+      summary: "Stop sending to a subscription",
+      description: "`endpoint`: the Web Push endpoint or Expo token. A no-op if it isn't yours.",
+      requestBody: jsonBody(fromZod(unregisterPushSchema)),
+      responses: { 204: noContent, ...badRequest, ...unauthorized },
+    },
+  },
+
   "/seeds": {
     get: {
       tags: [tags.dev],

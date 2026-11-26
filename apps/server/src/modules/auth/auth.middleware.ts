@@ -7,6 +7,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: SessionUser;
+      /** The id of the session `user` signed in with (set with it). */
+      sessionId?: string;
     }
   }
 }
@@ -38,7 +40,11 @@ export const loadUser =
   (auth: AuthService): RequestHandler =>
   async (req, _res, next) => {
     const token = sessionTokenOf(req);
-    if (token) req.user = (await auth.authenticate(token)) ?? undefined;
+    const session = token ? await auth.authenticate(token) : null;
+    if (session) {
+      req.user = session.user;
+      req.sessionId = session.sessionId;
+    }
     next();
   };
 
